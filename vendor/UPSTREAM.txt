@@ -1,0 +1,4 @@
+https://github.com/unknownskl/greenlight
+Commit: ef852c3b90292def435c8c877feeb1aeaefd8a33
+
+Modified player: HTMLVideoElement instead of WebGPU; compatibility guards. Only auth.ts and proxystore.ts used from platform.

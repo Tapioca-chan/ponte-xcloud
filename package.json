@@ -1,0 +1,20 @@
+{
+  "name": "ponte-xcloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "uuid": "^13.0.0",
+    "ws": "^8.18.0",
+    "xal-node": "1.1.6-beta2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
