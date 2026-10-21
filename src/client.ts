@@ -6,7 +6,7 @@ const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(m
 import Player from '../vendor/packages/player/src/client/lib/player';
 import {buttons,axes,sanitize,gamepadFrame} from './protocol.mjs';
 const $=(id:string)=>document.getElementById(id) as any;
-const status=(s:string)=>{$('status').textContent=s;};
+const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-player-status',message:s});};
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let map:any={},mappingKey='',calStep=-1,calWaiting=0,previous:any,baseAxes:number[]=[];
@@ -46,7 +46,11 @@ $('play').onclick=run(async()=>{
  player=new Player('playerContainer');player.init();
  const channel=player._channels.control;
  // Register after the service's initial add/remove handshake; never use the TV's Gamepad API.
- const original=channel.sendAuthorization.bind(channel);channel.sendAuthorization=()=>{original();channel.sendGamepadState(0,true,{getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),handleVibration:()=>{},detach:()=>{}});};
+ const original=channel.sendAuthorization.bind(channel);channel.sendAuthorization=()=>{
+  original();
+  channel.sendGamepadState(0,true,{getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),handleVibration:()=>{},detach:()=>{}});
+  notifyParent({type:'xbridge-control-ready'});
+};
  player._peerConnection.addEventListener('connectionstatechange',()=>{
  const state=player._peerConnection.connectionState; status('Transmissão: '+state);
  if(state==='failed'||state==='disconnected'||state==='closed'){document.body.classList.remove('stream-playing');notifyParent({type:'xbridge-playing',playing:false});}
