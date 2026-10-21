@@ -2,7 +2,6 @@ import Channel from './channel'
 import InputPacket, { MetadataFrame, ReportTypes, InputFrame as GamepadFrame, MouseFrame, KeyboardFrame, PointerFrame } from './input/packet'
 import InputQueue from './input/queue'
 
-import Gamepad from '../input/gamepad'
 import {collectGamepadFrames} from './input/collect.mjs'
 
 export interface VibrationFrame {
@@ -21,6 +20,8 @@ export default class InputChannel extends Channel {
     private _serverVideoHeight = 0
 
     private _inputQueue = new InputQueue(this.getPlayer())
+    private _polling = false
+    private _pollTimer:ReturnType<typeof setTimeout>|null = null
 
     getChannelName() {
         return 'input'
@@ -42,13 +43,15 @@ export default class InputChannel extends Channel {
     }
 
     start(){
+        if(this._polling) return
+        this._polling = true
         const Packet = new InputPacket(0)
         Packet.setMetadata(navigator.maxTouchPoints > 1 ? navigator.maxTouchPoints : 1)
         this.send(Packet.toBuffer())
 
         console.log('[InputChannel] Sent metadata:', Packet, Packet.toBuffer())
 
-        setTimeout(this.gamepadStateLoop.bind(this), 16)
+        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), 16)
     }
 
     onMessage(event: MessageEvent<any>) {
@@ -98,6 +101,7 @@ export default class InputChannel extends Channel {
     }
 
     gamepadStateLoop(){
+        if(!this._polling) return
         // The original instanceof Gamepad filter ignored the xBridge virtual
         // handler. Accept any registered frame-provider with a valid index.
         const gamepadHandlers = this.getPlayer()._channels.control.getGamepadHandlers()
@@ -107,7 +111,7 @@ export default class InputChannel extends Channel {
             this.queueGamepadFrames(gamepadFrames)
         }
 
-        setTimeout(this.gamepadStateLoop.bind(this), 16)
+        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), 16)
     }
 
     queueMetadataFrame(data:MetadataFrame){
@@ -131,6 +135,8 @@ export default class InputChannel extends Channel {
     }
 
     destroy() {
-        // console.log('DebugChannel destroy() called')
+        this._polling = false
+        if(this._pollTimer !== null) clearTimeout(this._pollTimer)
+        this._pollTimer = null
     }
 }
