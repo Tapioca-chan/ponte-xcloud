@@ -1,4 +1,8 @@
 import QRCode from 'qrcode';
+import {compactFrame,acceptsParent} from './xbridge-input.mjs';
+const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
+const parentOrigin = 'https://xcloud-tv.onrender.com';
+const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
 import Player from '../vendor/packages/player/src/client/lib/player';
 import {buttons,axes,sanitize,gamepadFrame} from './protocol.mjs';
 const $=(id:string)=>document.getElementById(id) as any;
@@ -43,7 +47,10 @@ $('play').onclick=run(async()=>{
  const channel=player._channels.control;
  // Register after the service's initial add/remove handshake; never use the TV's Gamepad API.
  const original=channel.sendAuthorization.bind(channel);channel.sendAuthorization=()=>{original();channel.sendGamepadState(0,true,{getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),handleVibration:()=>{},detach:()=>{}});};
- player._peerConnection.addEventListener('connectionstatechange',()=>status('Transmissão: '+player._peerConnection.connectionState));
+ player._peerConnection.addEventListener('connectionstatechange',()=>{
+ const state=player._peerConnection.connectionState; status('Transmissão: '+state);
+ if(state==='failed'||state==='disconnected'||state==='closed'){document.body.classList.remove('stream-playing');notifyParent({type:'xbridge-playing',playing:false});}
+ });
  const offer=await player.createOffer();const answer=await api('sdp',{offer});await player.setRemoteSDP(JSON.parse(answer.exchangeResponse).sdp);
  const local=await player.getICECandidates();const candidates=local.map((c:any)=>JSON.stringify({candidate:c.candidate,sdpMid:c.sdpMid,sdpMLineIndex:c.sdpMLineIndex,usernameFragment:c.usernameFragment}));
  const remote=await api('ice',{candidates});await player.setRemoteIceCandidates(JSON.parse(remote.exchangeResponse));
@@ -81,3 +88,37 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&ws?.readyS
 
 // D-pad navigation for the TV remote, preserving selects and editable fields.
 document.addEventListener('keydown',e=>{if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)||['INPUT','TEXTAREA','SELECT'].includes((e.target as HTMLElement)?.tagName))return;const items=Array.from(document.querySelectorAll<HTMLElement>('button:not(:disabled),input,select,textarea')).filter(el=>el.offsetParent!==null);if(!items.length)return;const i=items.indexOf(document.activeElement as HTMLElement);const step=e.key==='ArrowDown'||e.key==='ArrowRight'?1:-1;items[(i+step+items.length)%items.length].focus();e.preventDefault();});
+
+
+// The existing xBridge owns pairing and forwards its live packets to this player.
+// Account tokens and the TV session key stay inside this frame/server.
+if (embedded) {
+ document.body.classList.add('xbridge-embedded');
+ $('setup').hidden=true; $('tv').hidden=false;
+ const handlers:any={}; ['login','verify','titles','play','sound','fullscreen','stop'].forEach(id=>handlers[id]=$(id).onclick);
+ $('tv').innerHTML=`<div class="cloud-heading"><h1>Xbox Cloud Gaming</h1><p>Seu controle já está conectado pelo xBridge. Entre na Microsoft para carregar seus jogos.</p></div>
+ <div class="cloud-steps"><section><h2>01 · Sua conta Xbox</h2><button id="embed-login" disabled>Entrar com a Microsoft</button><p id="embed-code"></p><button id="embed-verify" hidden>Já autorizei na Microsoft</button></section>
+ <section><h2>02 · Seus jogos</h2><button id="embed-titles" disabled>Carregar catálogo</button><label>Escolha um jogo<select id="embed-games"></select></label><button id="embed-play" disabled>Jogar agora</button></section></div>
+ <div class="cloud-actions"><button id="embed-sound">Ativar áudio / vídeo</button><button id="embed-fullscreen">Tela cheia</button><button id="embed-stop">Encerrar sessão</button></div>`;
+ ['login','verify','titles','play','sound','fullscreen','stop','code','games'].forEach(id=>{$('embed-'+id).id=id; if(handlers[id]) $(id).onclick=handlers[id];});
+ $('fullscreen').onclick=()=>notifyParent({type:'xbridge-fullscreen'});
+ window.addEventListener('message',event=>{
+  if(!acceptsParent(event,window.parent))return;
+  if(event.data?.type==='xbridge-input'){
+   frame=compactFrame(event.data.packet);lastFrame=Date.now();
+   $('remote').textContent='Controle do celular recebendo comandos';
+  } else if(event.data?.type==='xbridge-release'){
+   frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';
+  }
+ });
+ document.addEventListener('playing',event=>{
+  if(event.target instanceof HTMLVideoElement){document.body.classList.add('stream-playing');notifyParent({type:'xbridge-playing',playing:true});}
+ },true);
+ setInterval(()=>{if(lastFrame && Date.now()-lastFrame>400){frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';}},200);
+ const prepare=run(async()=>{
+  status('Preparando sessão Xbox…');setBackend(location.origin);room=await api('create');
+  $('login').disabled=false;status('Pronto. Entre com sua conta Microsoft.');notifyParent({type:'xbridge-ready'});
+ });
+ void prepare();
+}
+
