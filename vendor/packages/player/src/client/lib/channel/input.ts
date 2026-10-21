@@ -3,6 +3,7 @@ import InputPacket, { MetadataFrame, ReportTypes, InputFrame as GamepadFrame, Mo
 import InputQueue from './input/queue'
 
 import Gamepad from '../input/gamepad'
+import {collectGamepadFrames} from './input/collect.mjs'
 
 export interface VibrationFrame {
     gamepadIndex: number;
@@ -97,17 +98,10 @@ export default class InputChannel extends Channel {
     }
 
     gamepadStateLoop(){
+        // The original instanceof Gamepad filter ignored the xBridge virtual
+        // handler. Accept any registered frame-provider with a valid index.
         const gamepadHandlers = this.getPlayer()._channels.control.getGamepadHandlers()
-        // console.log('[InputChannel] gamepadStateLoop() called', gamepadHandlers)
-        const gamepadFrames:Array<GamepadFrame> = []
-        for(const gamepad in gamepadHandlers){
-            if(gamepadHandlers[gamepad] instanceof Gamepad){
-                const frame = (gamepadHandlers[gamepad] as Gamepad).getGamepadState()
-                if(frame !== undefined){
-                    gamepadFrames.push(frame)
-                }
-            }
-        }
+        const gamepadFrames:Array<GamepadFrame> = collectGamepadFrames(gamepadHandlers)
 
         if(gamepadFrames.length > 0){
             this.queueGamepadFrames(gamepadFrames)
