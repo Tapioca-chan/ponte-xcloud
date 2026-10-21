@@ -23,7 +23,14 @@ function connect(role:string,key:string){
  ws.onclose=()=>{frame=sanitize({});status('Conexão interrompida. Reconecte ou prepare uma nova sala.');};
  ws.onerror=()=>status('Falha no canal de comandos. Verifique servidor e HTTPS.');
 }
-function setBackend(value:string){const u=new URL(value);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')throw Error('Use um servidor HTTPS');backend=u.origin;}
+function setBackend(value:string){
+ const u=new URL(value);
+ if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')throw Error('Use um servidor HTTPS');
+ // The mounted /player path is the same-origin reverse proxy on the TV site.
+ // No arbitrary proxy paths can be entered from the normal setup screen.
+ backend=(embedded && u.origin===location.origin && u.pathname==='/player')
+  ? u.origin+'/player' : u.origin;
+}
 $('backend').value=location.protocol==='https:'?location.origin:'http://localhost:3000';
 $('diagnostics').textContent='WebRTC: '+(typeof RTCPeerConnection!=='undefined'?'sim':'ausente')+' · WebSocket: '+(typeof WebSocket!=='undefined'?'sim':'ausente')+' · Controle local: '+(navigator.getGamepads?'API disponível':'API ausente');
 $('create').onclick=run(async()=>{
@@ -120,7 +127,7 @@ if (embedded) {
  },true);
  setInterval(()=>{if(lastFrame && Date.now()-lastFrame>400){frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';}},200);
  const prepare=run(async()=>{
-  status('Preparando sessão Xbox…');setBackend(location.origin);room=await api('create');
+  status('Preparando sessão Xbox…');setBackend(location.origin+(location.pathname.startsWith('/player')?'/player':''));room=await api('create');
   $('login').disabled=false;status('Pronto. Entre com sua conta Microsoft.');notifyParent({type:'xbridge-ready'});
  });
  void prepare();
