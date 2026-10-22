@@ -89,7 +89,11 @@ export default class Sdp {
             // }
         }
 
-        const codecOrder = [...t1, ...t2, ...t3, ...t4]
+        // On VIDAA prioritize hardware-friendly constrained-baseline H.264
+        // over Main-profile H.264. Preserve every original codec as fallback.
+        const vidaa = typeof document !== 'undefined' &&
+            document.body.classList.contains('xbridge-embedded')
+        const codecOrder = vidaa ? [...t2, ...t3, ...t1, ...t4] : [...t1, ...t2, ...t3, ...t4]
 
         return codecOrder
     }
