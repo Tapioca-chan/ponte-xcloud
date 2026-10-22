@@ -171,30 +171,61 @@ const server=http.createServer(async(req,res)=>{
      reply(res,200,{user_code:data.user_code,verification_uri:data.verification_uri,verification_uri_complete:completeUrl,expires_in:data.expires_in,interval:data.interval});return;
     }
     if(action==='verify'){
-     if(!room.device)throw Error('Inicie o login');
-     const user=await auth.verifyDeviceCode(room.device.device_code,1);
-     if(!user?.access_token)throw Error('Login ainda não concluído');
-     const tokens=await auth.getStreamingTokens(user);const cloud=tokens.xCloudToken?.data;
-     if(!cloud?.gsToken)throw Error('Conta sem token xCloud');
-     const region=cloud.offeringSettings?.regions?.find((r:any)=>r.isDefault)||cloud.offeringSettings?.regions?.[0];
-     const host=new URL(region.baseUri);if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
-     room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;
-     // Remember only an opaque secret in the TV browser; tokens remain server-side.
-     // Commit a new durable session before replacing the previous cookie.
-     // If MongoDB cannot write, keep the last working authorization intact.
+     if(!room.device){reply(res,409,{ok:false,reason:'no_device_code',error:'Gere um novo código Microsoft.'});return;}
+     let authorized:any;
+     try{
+      // The dependency polls until success. With timeout=1 this is one
+      // bounded probe, so "timeout" commonly means authorization_pending.
+      authorized=await auth.verifyDeviceCode(room.device.device_code,1);
+     }catch(error){
+      const msg=error instanceof Error?error.message:'';
+      if(/doPollForDeviceCodeAuth timeout/i.test(msg)){
+       reply(res,200,{ok:false,pending:true,reason:'authorization_pending'});
+       return;
+      }
+      console.warn('[Xbox verify] device_code_failed');
+      throw error;
+     }
+     const user=normalizeMicrosoftUserToken(authorized);
+     // Critical: record the Microsoft authorization BEFORE optional xCloud
+     // token requests, so a temporary Xbox outage cannot consume an approved
+     // device code then leave the user unable to restore without another QR.
      if(!persistentConfigured())throw Error('Armazenamento persistente não configurado');
      const previous=getRememberId(req);
      const key=secret();
      const durable=await saveRemember(key,user);
      if(!durable)throw Error('Não foi possível salvar a autorização Xbox no banco');
      room.rememberKey=key;
-     remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
+     room.user=user;
+     remembered.set(key,{user,token:null,host:'',lastRefresh:0,expires:Date.now()+rememberMaxAge*1000});
      setRememberCookie(res,key);
+     delete room.device;
      if(previous&&previous!==key){
       remembered.delete(previous);
-      try{await revokeRemember(previous)}catch{} // Previous TTL expires regardless.
+      try{await revokeRemember(previous)}catch{}
      }
-     delete room.device;reply(res,200,{ok:true,remembered:true});return;
+     console.info('[Xbox verify] authorization_saved');
+     try{
+      const tokens=await auth.getStreamingTokens(user);
+      const cloud=tokens.xCloudToken?.data;
+      if(!cloud?.gsToken)throw Error('Conta sem token xCloud');
+      const region=cloud.offeringSettings?.regions?.find((r:any)=>r.isDefault)||cloud.offeringSettings?.regions?.[0];
+      const host=new URL(region.baseUri);
+      if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
+      room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
+      room.host=host.origin;
+      const cached=remembered.get(key);
+      if(cached){cached.token=room.token;cached.host=room.host;cached.lastRefresh=Date.now();}
+      console.info('[Xbox verify] cloud_ready');
+      reply(res,200,{ok:true,remembered:true});return;
+     }catch{
+      // Microsoft already authorized the account and the token is safely
+      // encrypted in Mongo. A single reload will retry xCloud authorization.
+      console.warn('[Xbox verify] cloud_unavailable_after_save');
+      reply(res,200,{ok:false,remembered:true,reason:'cloud_unavailable',
+       error:'Conta Microsoft salva. Não foi possível iniciar o Xbox agora; restaurando a sessão.'});
+      return;
+     }
     }
     if(!room.token){reply(res,401,{error:'Faça login primeiro'});return;}
         if(action==='catalog'){
