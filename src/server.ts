@@ -7,6 +7,7 @@ import Auth from '../vendor/packages/platform/src/controller/auth';
 import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
+import {saveRemember,loadRemember,revokeRemember,persistentConfigured} from './remember-store.mjs';
 const rooms=new Map<string,any>();
 // Opaque browser identity. No Microsoft passwords/tokens are sent to the TV.
 // Render's ephemeral memory means this survives page reloads but not a server restart.
@@ -58,7 +59,12 @@ const server=http.createServer(async(req,res)=>{
    if(action==='resume'){
     // Only the HttpOnly first-party cookie can identify the remembered account.
     // POST + Strict SameSite prevent login CSRF from other websites.
-    const key=getRememberId(req),saved=remembered.get(key);
+    const key=getRememberId(req);
+    let saved=remembered.get(key);
+    if(!saved && key && persistentConfigured()){
+      try { const user=await loadRemember(key); if(user) saved={user,token:null,host:'',lastRefresh:0,expires:Date.now()+rememberMaxAge*1000}; }
+      catch { reply(res,503,{error:'Armazenamento da conta Xbox temporariamente indisponível. Tente novamente.'});return; }
+    }
     if(!saved||saved.expires<Date.now()){
      if(key)remembered.delete(key);
      clearRememberCookie(res);
@@ -73,7 +79,7 @@ const server=http.createServer(async(req,res)=>{
      }
     }
     if(rooms.size>=20){reply(res,429,{error:'Limite de sessões Xbox'});return;}
-    if(Date.now()-saved.lastRefresh>25*60*1000){
+    if(!saved.token || Date.now()-saved.lastRefresh>25*60*1000){
      try{
       const refreshed=await auth.refreshUserToken(saved.user);
       if(!refreshed?.access_token)throw Error('Autorização Microsoft expirada');
@@ -85,12 +91,15 @@ const server=http.createServer(async(req,res)=>{
       if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
       saved.user=refreshed;saved.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
       saved.host=host.origin;saved.lastRefresh=Date.now();
+      if(persistentConfigured()) await saveRemember(key,refreshed);
      }catch{
-      remembered.delete(key);clearRememberCookie(res);
-      reply(res,401,{ok:false,remembered:false,reason:'Microsoft requer nova autorização'});return;
+      remembered.delete(key);
+      // Do not destroy the persistent login on transient Microsoft failures.
+      reply(res,503,{ok:false,error:'Não foi possível renovar a conta Xbox agora. Tente novamente.'});return;
      }
     }
     saved.expires=Date.now()+rememberMaxAge*1000;
+    remembered.set(key,saved);
     setRememberCookie(res,key);
     const room=allocateRoom();
     room.user=saved.user;room.token=saved.token;room.host=saved.host;room.rememberKey=key;
@@ -103,8 +112,8 @@ const server=http.createServer(async(req,res)=>{
     if(action==='close'){for(const s of room.sockets.values())s.close();rooms.delete(body.room);reply(res,200,{ok:true});return;}
     if(action==='logout'){
      const key=getRememberId(req);
-     if(key&&room.rememberKey===key)remembered.delete(key);
-     if(room.rememberKey)remembered.delete(room.rememberKey);
+     if(key&&room.rememberKey===key){remembered.delete(key);await revokeRemember(key);}
+     if(room.rememberKey&&room.rememberKey!==key){remembered.delete(room.rememberKey);await revokeRemember(room.rememberKey);}
      clearRememberCookie(res);
      delete room.user;delete room.token;delete room.host;delete room.device;
      delete room.rememberKey;delete room.session;delete room.config;
@@ -149,9 +158,10 @@ const server=http.createServer(async(req,res)=>{
      const host=new URL(region.baseUri);if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
      room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;
      // Remember only an opaque secret in the TV browser; tokens remain server-side.
-     const previous=getRememberId(req);if(previous)remembered.delete(previous);
+     const previous=getRememberId(req);if(previous){remembered.delete(previous);await revokeRemember(previous);}
      const key=secret();room.rememberKey=key;
      remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
+     if(persistentConfigured()) await saveRemember(key,user);
      setRememberCookie(res,key);
      delete room.device;reply(res,200,{ok:true,remembered:true});return;
     }
