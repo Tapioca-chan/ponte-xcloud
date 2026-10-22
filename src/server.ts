@@ -6,7 +6,6 @@ import {WebSocketServer,WebSocket} from 'ws';
 import Auth from '../vendor/packages/platform/src/controller/auth';
 import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
-import {gameCard} from './catalog.mjs';
 const rooms=new Map<string,any>();
 const auth=new Auth();
 const port=Number(process.env.PORT||3000);
@@ -50,47 +49,6 @@ const server=http.createServer(async(req,res)=>{
      room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;delete room.device;reply(res,200,{ok:true});return;
     }
     if(!room.token){reply(res,401,{error:'Faça login primeiro'});return;}
-    if(action==='catalog'){
-     // Stream availability is account-specific. The Xbox title service provides
-     // the IDs, and the public Microsoft catalog provides artwork and names.
-     // Fetch a small page to keep low-powered VIDAA browsers responsive.
-     const offset=Math.max(0,Math.min(5000,Number.isInteger(body.offset)?body.offset:0));
-     const limit=Math.max(12,Math.min(48,Number.isInteger(body.limit)?body.limit:36));
-     if(!room.titlesCache || Date.now()-room.titlesFetched>10*60*1000){
-      const response=await fetch(room.host+'/v2/titles',{
-       headers:{Authorization:'Bearer '+room.token.token},signal:AbortSignal.timeout(20000)
-      });
-      if(!response.ok)throw Error('Catálogo Xbox indisponível ('+response.status+')');
-      const data:any=await response.json();
-      room.titlesCache=Array.isArray(data.results)?data.results:Array.isArray(data.titles)?data.titles:[];
-      room.titlesFetched=Date.now();
-     }
-     const titles:any[]=room.titlesCache;
-     const page=titles.slice(offset,offset+limit);
-     const ids=[...new Set(page.map(t=>t?.details?.productId).filter((id):id is string=>typeof id==='string' && /^[a-z0-9]{8,20}$/i.test(id)))];
-     let products:any={};
-     if(ids.length){
-      try {
-       const url='https://catalog.gamepass.com/v3/products?market=BR&language=pt-BR&hydration=RemoteHighSapphire0';
-       const meta=await fetch(url,{
-        method:'POST',
-        headers:{
-         'Content-Type':'application/json','ms-cv':'0',
-         'calling-app-name':'Xbox Cloud Gaming Web','calling-app-version':'21.0.0',
-        },
-        body:JSON.stringify({Products:ids}),
-        signal:AbortSignal.timeout(15000),
-       });
-       if(meta.ok){const result:any=await meta.json();products=result.Products||{};}
-      } catch {
-       // If the public metadata service is slow, still display real playable IDs
-       // from the Xbox cloud catalog; never invent game covers.
-      }
-     }
-     const games=page.map(t=>gameCard(t,products[t?.details?.productId]||null));
-     reply(res,200,{games,total:titles.length,offset,next:offset+page.length<titles.length?offset+page.length:null,source:'xbox'});
-     return;
-    }
     if(action==='titles'){
      const r=await fetch(room.host+'/v2/titles',{headers:{Authorization:'Bearer '+room.token.token},signal:AbortSignal.timeout(20000)});
      if(!r.ok)throw Error('Catálogo indisponível ('+r.status+')');const data=await r.json();reply(res,200,data);return;
