@@ -72,7 +72,18 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         </div>
       </div>
     </div>`;
-  // Preserve the real game streaming handlers, never simulate a successful session.
+  // The standalone player already uses these canonical element IDs.
+  // The redesigned embedded markup deliberately prefixes them to avoid
+  // collisions before mount. Switch them back BEFORE reading or binding any
+  // handler. Omitting this causes a null.onclick TypeError, making the entire
+  // player appear blank/forever loading on VIDAA.
+  for (const id of ['login','verify','titles','play','sound','fullscreen','stop','code','games']) {
+    const element = $('embed-' + id);
+    if (!element) throw new Error('xBridge: missing embedded player element ' + id);
+    element.id = id;
+  }
+
+    // Preserve the real game streaming handlers, never simulate a successful session.
   for (const id of ['play','sound','fullscreen','stop']) {
     const element=$(id);
     if (handlers[id]) element.onclick=handlers[id];
