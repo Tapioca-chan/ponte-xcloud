@@ -3,6 +3,7 @@ import {mountEmbeddedDashboard} from './embedded-dashboard.mjs';
 import {serializeLocalIceCandidates} from './ice-bridge.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
+import {classifyStreamHealth} from './stream-health.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -12,6 +13,49 @@ const $=(id:string)=>document.getElementById(id) as any;
 const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-player-status',message:s});};
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
+let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+function stopVideoHealth(){
+ if(videoHealthTimer)clearInterval(videoHealthTimer);
+ videoHealthTimer=null;healthPrevious=null;freezeChecks=0;
+}
+function startVideoHealth(){
+ stopVideoHealth();
+ videoHealthTimer=setInterval(async()=>{
+  if(!player?._peerConnection)return;
+  try{
+   const peer=player._peerConnection;
+   const stats=await peer.getStats();
+   let inbound:any=null;
+   stats.forEach((x:any)=>{
+    if(x.type==='inbound-rtp'&&(x.kind==='video'||x.mediaType==='video'))inbound=x;
+   });
+   if(!inbound)return;
+   const sample={
+    decoded:Number(inbound.framesDecoded)||0,
+    received:Number(inbound.packetsReceived)||0,
+    videoWidth:Number(inbound.frameWidth)||0,
+    videoHeight:Number(inbound.frameHeight)||0,
+    connection:peer.connectionState
+   };
+   const result=classifyStreamHealth(healthPrevious,sample,6);
+   healthPrevious=sample;
+   if(result.kind==='active')freezeChecks=0;
+   else if(result.kind==='decode-stall'||result.kind==='network-stall')freezeChecks++;
+   notifyParent({type:'xbridge-video-health',message:result.reason,
+    kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
+    decoded:sample.decoded,received:sample.received});
+   if(freezeChecks>=2&&Date.now()-lastKeyframeRequest>20000){
+    // A keyframe request is a safe recovery attempt; the server may ignore it.
+    // Never restart a game or log out automatically over a stalled image.
+    player._channels.control.requestKeyframeRequest(true);
+    lastKeyframeRequest=Date.now();
+    status(result.reason+'. Solicitado novo quadro ao Xbox.');
+   }
+  }catch(_){
+   notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
+  }
+ },6500);
+}
 let map:any={},mappingKey='',calStep=-1,calWaiting=0,previous:any,baseAxes:number[]=[];
 const fields=[...buttons,...axes];
 function endpoint(p:string){return backend.replace(/\/$/,'')+p;}
@@ -131,13 +175,14 @@ $('play').onclick=async()=>{
   if(!Array.isArray(remoteCandidates))throw Error('O Xbox retornou candidatos de rede em formato desconhecido.');
   await player.setRemoteIceCandidates(remoteCandidates);
   announce('Conexão negociada. Aguardando imagem do jogo…');
+  startVideoHealth();
   keepalive=setInterval(()=>api('keepalive').catch(()=>announce('Falha ao manter a sessão Xbox ativa.')),30000);
  }catch(e:any){
   const message=String(e?.message||'Erro desconhecido').slice(0,180);
   const detail='Não foi possível iniciar o jogo ['+phase+']: '+message;
   announce(detail);
   notifyParent({type:'xbridge-player-error',message:detail});
-  clearInterval(keepalive);
+  clearInterval(keepalive);stopVideoHealth();
   try{player?.destroy()}catch(_){}
   player=undefined;
   try{await api('reset')}catch(_){}
@@ -147,7 +192,7 @@ $('play').onclick=async()=>{
 };
 $('fullscreen').onclick=run(()=> $('playerContainer').requestFullscreen());
 $('sound').onclick=run(async()=>{for(const el of document.querySelectorAll('video,audio'))await(el as HTMLMediaElement).play();});
-$('stop').onclick=run(async()=>{clearInterval(keepalive);player?.destroy();ws?.close();await api('close');location.hash='';location.reload();});
+$('stop').onclick=run(async()=>{clearInterval(keepalive);stopVideoHealth();player?.destroy();ws?.close();await api('close');location.hash='';location.reload();});
 function advance(){calStep++;calWaiting=Date.now()+700;previous=null;baseAxes=[];if(calStep>=fields.length){calStep=-1;localStorage.setItem(mappingKey,JSON.stringify(map));$('calibration').textContent='Mapeamento salvo neste celular.';$('skip').hidden=true;}else $('calibration').textContent='Solte os comandos e depois acione: '+fields[calStep]+(axes.includes(fields[calStep])?' (mova para direita ou para baixo)':'');}
 $('calibrate').onclick=()=>{map={};calStep=-1;advance();$('skip').hidden=false;};$('skip').onclick=advance;
 function poll(){
@@ -238,7 +283,7 @@ if (embedded) {
    void (async()=>{
     document.body.classList.remove('stream-playing');
     notifyParent({type:'xbridge-playing',playing:false});
-    clearInterval(keepalive);
+    clearInterval(keepalive);stopVideoHealth();
     try{player?.destroy();player=undefined;}catch(_){}
     $('play').disabled=true;
     status('Encerrando partida atual no Xbox…');
@@ -247,6 +292,13 @@ if (embedded) {
     $('play').disabled=false;
     status('Pronto para escolher outro jogo. Conta Xbox mantida.');
    })();
+  } else if(event.data?.type==='xbridge-recover-video'){
+   // Explicit user recovery, never automatically restart a successful game.
+   try{player?._channels.control.requestKeyframeRequest(true)}catch(_){}
+   for(const media of document.querySelectorAll('video,audio')) {
+    void (media as HTMLMediaElement).play().catch(()=>{});
+   }
+   status('Solicitei um novo quadro-chave do Xbox. Se a imagem continuar parada, teste outro jogo.');
   } else if(event.data?.type==='xbridge-resume-media'){
    // A user gesture in the TV settings may unlock media on VIDAA.
    void (async()=>{
