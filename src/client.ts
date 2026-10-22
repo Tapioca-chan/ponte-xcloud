@@ -611,11 +611,14 @@ if (embedded) {
   dashboard.ready();
   notifyParent({type:'xbridge-ready'});
   if(needsLogin){
+   $('xb-resume-retry').hidden=true;
    status('Este navegador não apresentou uma sessão Xbox válida. Autorize sua conta para vinculá-lo.');
-   $('xb-login-feedback').textContent='O navegador não enviou uma sessão válida. Após autenticar, o xBridge salvará a conta.';
+   $('xb-login-feedback').textContent='Não foi encontrado um cookie de sessão válido. Após autenticar, o xBridge salvará a conta.';
   }else{
+   $('xb-resume-retry').hidden=false;
+   $('login').textContent='Autorizar novamente (somente se necessário)';
    status('Não foi possível consultar a sessão Xbox. Sua autorização não foi apagada.');
-   $('xb-login-feedback').textContent='Falha temporária do servidor Xbox ou MongoDB. Sua autorização continua salva. Atualize a página para tentar restaurar, em vez de gerar outro código Microsoft.';
+   $('xb-login-feedback').textContent='Falha temporária do servidor Xbox ou MongoDB. Sua autorização não foi apagada. Tente Restaurar sessão salva novamente antes de fazer outro login Microsoft.';
   }
  });
  void prepare();
