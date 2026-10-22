@@ -209,8 +209,19 @@ let map:any={},mappingKey='',calStep=-1,calWaiting=0,previous:any,baseAxes:numbe
 const fields=[...buttons,...axes];
 function endpoint(p:string){return backend.replace(/\/$/,'')+p;}
 async function api(action:string,body:any={}){
- const response=await fetch(endpoint('/api/'+action),{method:'POST',headers:{'Content-Type':'application/json',...(room?{'Authorization':'Bearer '+room.tvKey}:{})},body:JSON.stringify({...body,room:room?.id})});
- const data=await response.json();if(!response.ok)throw Error(data.error||'Servidor indisponível');return data;
+ const response=await fetch(endpoint('/api/'+action),{
+  method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json',...(room?{'Authorization':'Bearer '+room.tvKey}:{})},
+  body:JSON.stringify({...body,room:room?.id})
+ });
+ const data=await response.json();
+ if(!response.ok){
+  const error=Object.assign(new Error(data.error||'Servidor indisponível'),{
+   status:response.status,reason:data.reason||'',retryable:data.retryable===true
+  });
+  throw error;
+ }
+ return data;
 }
 function connect(role:string,key:string){
  if(ws)ws.close();ws=new WebSocket(endpoint('/relay').replace(/^http/,'ws'));
@@ -569,27 +580,43 @@ if (embedded) {
  },true);
  setInterval(()=>{if(lastFrame && Date.now()-lastFrame>400){frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';}},200);
  const prepare=run(async()=>{
-  status('Verificando conexão Xbox salva…');
+  status('Procurando sessão Xbox persistente…');
   setBackend(location.origin+(location.pathname.startsWith('/player')?'/player':''));
-  try {
-   // /api/resume checks an HttpOnly first-party cookie and returns only a
-   // fresh transient room key. Never store Microsoft access tokens in JS.
-   const previous=await api('resume');
-   if(previous.ok&&previous.id&&previous.tvKey){
-    room={id:previous.id,tvKey:previous.tvKey};
-    dashboard.ready();
-    status('Conta Xbox restaurada. Carregando biblioteca…');
-    notifyParent({type:'xbridge-ready'});
-    await dashboard.restored();
-    return;
+  // Only missing/revoked cookies justify prompting Microsoft immediately.
+  // Transient failures are retried; saved MongoDB data is never cleared.
+  let needsLogin=false;
+  for(let attempt=0;attempt<5;attempt++){
+   try{
+    const previous=await api('resume');
+    if(previous.ok&&previous.id&&previous.tvKey){
+     room={id:previous.id,tvKey:previous.tvKey};
+     dashboard.ready();
+     status('Sessão Xbox restaurada automaticamente. Carregando biblioteca…');
+     notifyParent({type:'xbridge-ready'});
+     await dashboard.restored();
+     return;
+    }
+   }catch(error:any){
+    if(error?.status===401 && ['cookie_missing','session_not_found','authorization_rejected'].includes(error?.reason)){
+     needsLogin=true;break;
+    }
    }
-  }catch(_){
-   // Invalid/expired backend session means the user must authorize again.
-   // No Microsoft password is ever asked by the xBridge page.
+   if(attempt<4){
+    const delay=[1200,2200,3500,5500][attempt];
+    status('Mantendo a sessão Xbox: reconectando ao servidor ('+(attempt+2)+'/5)…');
+    await new Promise(resolve=>setTimeout(resolve,delay));
+   }
   }
   room=await api('create');
-  dashboard.ready();status('Pronto. Autorize sua conta Microsoft pelo QR Code.');
+  dashboard.ready();
   notifyParent({type:'xbridge-ready'});
+  if(needsLogin){
+   status('Este navegador não apresentou uma sessão Xbox válida. Autorize sua conta para vinculá-lo.');
+   $('xb-login-feedback').textContent='O navegador não enviou uma sessão válida. Após autenticar, o xBridge salvará a conta.';
+  }else{
+   status('Não foi possível consultar a sessão Xbox. Sua autorização não foi apagada.');
+   $('xb-login-feedback').textContent='Falha temporária do servidor Xbox ou MongoDB. Sua autorização continua salva. Atualize a página para tentar restaurar, em vez de gerar outro código Microsoft.';
+  }
  });
  void prepare();
 }
