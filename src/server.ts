@@ -64,6 +64,14 @@ const server=http.createServer(async(req,res)=>{
      clearRememberCookie(res);
      reply(res,401,{ok:false,remembered:false});return;
     }
+    // Reloaded TV tabs should not accumulate obsolete Xbox rooms.
+    // One remembered browser gets one live room; close its prior transport.
+    for(const [existingId,existing] of rooms){
+     if(existing.rememberKey===key){
+      for(const socket of existing.sockets.values())socket.close();
+      rooms.delete(existingId);
+     }
+    }
     if(rooms.size>=20){reply(res,429,{error:'Limite de sessões Xbox'});return;}
     if(Date.now()-saved.lastRefresh>25*60*1000){
      try{
