@@ -13,7 +13,26 @@ export default class VideoComponent {
     }
 
     create(stream:MediaStream) {
-        const videoElement = document.createElement('video')
+        // VIDAA's native video plane may not scale correctly when hosted in a
+        // nested iframe. The xBridge TV parent and this player share the same
+        // origin, so attach the REAL media element to the top-level document.
+        // Xbox WebRTC, input, and account authentication stay inside the player.
+        let host:HTMLElement|null = null
+        let renderDocument:Document = document
+        let topLevel = false
+        try {
+            if (window.parent !== window && window.parent.location.origin === window.location.origin) {
+                const candidate = window.parent.document.getElementById('xbridge-top-video')
+                if (candidate) {
+                    host = candidate
+                    renderDocument = window.parent.document
+                    topLevel = true
+                }
+            }
+        } catch (_) {
+            // Ordinary standalone player remains supported.
+        }
+        const videoElement = renderDocument.createElement('video')
         videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
@@ -24,8 +43,15 @@ export default class VideoComponent {
         videoElement.style.backgroundColor = 'black'
         videoElement.style.touchAction = 'none'
 
-        const element = document.getElementById(this._player.getElementId())
+        const element = host || document.getElementById(this._player.getElementId())
         if(element === null) {return}
+        if(topLevel) {
+            // No second decoder instance, no copied frames/canvas (which would
+            // burden an old ARM TV). Stream is attached once to the parent.
+            element.replaceChildren()
+            videoElement.setAttribute('data-xbridge-top-video','1')
+            videoElement.style.pointerEvents = 'none'
+        }
 
         this._element = videoElement
         // Avoid rendering a small inline video while awaiting autoplay.
@@ -41,10 +67,13 @@ export default class VideoComponent {
             // not just the React iframe (which was already full-screen).
             const force = (el:HTMLElement, key:string, value:string) =>
                 el.style.setProperty(key,value,'important')
-            force(element,'position','fixed')
+            // The parent host lives inside the xBridge full-screen section;
+            // when a decoded frame arrives, the parent expands the section.
+            // Do not detach the host from that section or its overlay controls.
+            force(element,'position',topLevel?'absolute':'fixed')
             force(element,'inset','0')
-            force(element,'width','100vw')
-            force(element,'height','100vh')
+            force(element,'width',topLevel?'100%':'100vw')
+            force(element,'height',topLevel?'100%':'100vh')
             force(element,'overflow','hidden')
             force(element,'background','#000')
             force(videoElement,'display','block')
@@ -81,6 +110,11 @@ export default class VideoComponent {
             } catch (_) {}
         })
         element.appendChild(this._element)
+        if(topLevel) {
+            try {
+                window.parent.postMessage({type:'xbridge-video-attached',topLevel:true},location.origin)
+            } catch (_) {}
+        }
         // VIDAA may block autoplay despite muted inline video; the user can
         // explicitly activate media in settings if the promise is rejected.
         void videoElement.play().catch(() => {})
@@ -115,15 +149,16 @@ export default class VideoComponent {
     }
 
     destroy(){
-        const streamHolder = document.getElementById(this._player.getElementId())
-        const element = streamHolder?.querySelector('video')
-
         if(this._overlay !== undefined){
             this._overlay.destroy()
         }
-
-        if(element){
-            element.remove()
+        // The video can belong to the parent document. Always use our element
+        // reference rather than querying only the child iframe.
+        if(this._element){
+            this._element.pause()
+            this._element.srcObject = null
+            this._element.remove()
+            this._element = undefined
         }
     }
 }
