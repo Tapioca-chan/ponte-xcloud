@@ -25,3 +25,24 @@ export function shouldAttemptMetroRecovery({
   if (attempts > 0 && now - lastAttemptAt < 60000) return false;
   return true;
 }
+
+/**
+ * Boot-only safeguard for VIDAA: some games continue producing valid WebRTC
+ * frames but the native display plane sticks on one scene. Frame counters
+ * cannot detect that state. Try the same local video rebind a single time
+ * during an idle part of Metro's first minute, never during normal gameplay.
+ */
+export function shouldNudgeMetroBoot({
+  title, videoAgeMs, lastInputAgoMs, alreadyNudged = false,
+  hasVideo = false, connection = 'connected', recoveryBusy = false
+}) {
+  if (typeof title !== 'string' || !/\bmetro\s+exodus\b/i.test(title)) return false;
+  if (alreadyNudged || !hasVideo || recoveryBusy) return false;
+  if (connection !== 'connected' && connection !== 'completed') return false;
+  // No mid-game periodic reconnection; expire the boot-time opportunity.
+  if (!Number.isFinite(videoAgeMs) || videoAgeMs < 22000 || videoAgeMs > 60000) return false;
+  // An actively used gamepad suggests the player is already playing.
+  // Do not interrupt their inputs just because the image looks static.
+  if (!Number.isFinite(lastInputAgoMs) || lastInputAgoMs < 6000) return false;
+  return true;
+}
