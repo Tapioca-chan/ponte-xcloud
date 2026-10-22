@@ -42,6 +42,9 @@ export default class VideoComponent {
         videoElement.style.objectFit = 'contain'
         videoElement.style.backgroundColor = 'black'
         videoElement.style.touchAction = 'none'
+        // Presentation counter is updated by the browser's compositor callback,
+        // not by RTP decode statistics. No DOM repaint is needed per frame.
+        ;(videoElement as HTMLVideoElement & {__xbridgePresentedFrames?:number}).__xbridgePresentedFrames=0
 
         const element = host || document.getElementById(this._player.getElementId())
         if(element === null) {return}
@@ -158,6 +161,8 @@ export default class VideoComponent {
     processVideoMetadata(timestamp, data:VideoFrameCallbackMetadata) {
         if(this._element === undefined) {return}
 
+        const video=this._element as HTMLVideoElement & {__xbridgePresentedFrames?:number}
+        video.__xbridgePresentedFrames=(video.__xbridgePresentedFrames||0)+1
         this._element.requestVideoFrameCallback?.(this.processVideoMetadata.bind(this))
 
         this._player._channels.input.queueMetadataFrame({
