@@ -37,17 +37,18 @@ test('automatic Metro repair can retry after cooldown but never loops endlessly'
  assert.equal(shouldAttemptMetroRecovery({...base,consecutiveChecks:1}),false);
 });
 
-test('Metro frozen boot receives one cautious repair despite advancing WebRTC frames',()=>{
- const base={title:'Metro Exodus',videoAgeMs:24000,lastInputAgoMs:7000,
+test('Metro performs one early boot repair even while user holds the controller',()=>{
+ const base={title:'Metro Exodus',videoAgeMs:17000,lastInputAgoMs:0,
   alreadyNudged:false,hasVideo:true,connection:'connected',recoveryBusy:false};
  assert.equal(shouldNudgeMetroBoot(base),true);
- assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:21999}),false);
- assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:61000}),false);
- assert.equal(shouldNudgeMetroBoot({...base,lastInputAgoMs:4000}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:15999}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:45001}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,lastInputAgoMs:100}),true,'holding A on a frozen splash does not block recovery');
  assert.equal(shouldNudgeMetroBoot({...base,alreadyNudged:true}),false);
  assert.equal(shouldNudgeMetroBoot({...base,hasVideo:false}),false);
  assert.equal(shouldNudgeMetroBoot({...base,connection:'disconnected'}),false);
  assert.equal(shouldNudgeMetroBoot({...base,recoveryBusy:true}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,connection:'completed'}),true);
  assert.equal(shouldNudgeMetroBoot({...base,title:'Marvel Rivals'}),false);
  assert.equal(shouldNudgeMetroBoot({...base,title:'Metro 2033 Redux'}),false);
 });
