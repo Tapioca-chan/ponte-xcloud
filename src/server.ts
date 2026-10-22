@@ -21,12 +21,13 @@ const server=http.createServer(async(req,res)=>{
  res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization');res.setHeader('Access-Control-Allow-Methods','POST, GET, OPTIONS');
  if(req.method==='OPTIONS'){res.writeHead(204);res.end();return;}
  const u=new URL(req.url||'/', 'http://localhost');
+ let actionName='initialization';
  try {
   if(u.pathname==='/health'){reply(res,200,{ok:true,experimental:true});return;}
   if(u.pathname.startsWith('/api/')){
    if(req.method!=='POST'){reply(res,405,{error:'POST obrigatório'});return;}
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>131072){reply(res,413,{error:'Pedido grande demais'});return;}}
-   const body=JSON.parse(raw||'{}');const action=u.pathname.slice(5);
+   const body=JSON.parse(raw||'{}');const action=u.pathname.slice(5);actionName=action;
    if(action==='create'){
     if(rooms.size>=20){reply(res,429,{error:'Limite de salas; tente depois'});return;}
     const id=secret(),tvKey=secret(),phoneKey=secret();rooms.set(id,{tvKey,phoneKey,created:Date.now(),sockets:new Map(),busy:false});reply(res,200,{id,tvKey,phoneKey});return;
@@ -36,6 +37,20 @@ const server=http.createServer(async(req,res)=>{
    room.busy=true;
    try {
     if(action==='close'){for(const s of room.sockets.values())s.close();rooms.delete(body.room);reply(res,200,{ok:true});return;}
+    if(action==='reset'){
+     // Best-effort termination permits a new game without Microsoft re-login.
+     const old=room.session,config=room.config;
+     room.session=undefined;room.config=undefined;
+     if(old?.sessionPath&&config?.host&&room.token?.token){
+      try {
+       const destination=new URL('/'+old.sessionPath,config.host);
+       if(destination.protocol==='https:'&&destination.hostname.endsWith('.xboxlive.com')){
+        await fetch(destination,{method:'DELETE',headers:{Authorization:'Bearer '+room.token.token},signal:AbortSignal.timeout(9000)});
+       }
+      }catch{}
+     }
+     reply(res,200,{ok:true});return;
+    }
     if(action==='login'){
      const data=await auth.startMsalAuth();
      room.device=data;
@@ -130,7 +145,33 @@ if(action==='titles'){
    const types:any={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css'};
    const data=await readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(data);
   }
- }catch(e){reply(res,400,{error:'Falha na operação. Confira conexão, login e suporte do serviço. Nenhum token foi registrado.'});}
+  }catch(e){
+    // Do not send or log tokens, Microsoft response bodies, or session IDs.
+    const raw=e instanceof Error?e.message:'';
+    const matched=raw.match(/(?:Streaming HTTP |indisponível \()([45][0-9]{2})/i);
+    const upstreamStatus=matched?Number(matched[1]):undefined;
+    const allowedActions=new Set(['create','login','verify','catalog','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
+    const stage=allowedActions.has(actionName)?actionName:'init';
+    const messages:Record<string,string>={
+      create:'Não foi possível criar a sala de jogos.',
+      login:'Não foi possível iniciar a autorização Microsoft.',
+      verify:'Não foi possível confirmar a autorização Xbox.',
+      catalog:'Falha ao carregar o catálogo Xbox.',
+      titles:'Falha ao consultar os jogos Xbox.',
+      start:'O Xbox não criou a sessão deste jogo. Verifique o acesso ao título.',
+      state:'Não foi possível consultar o estado da sessão Xbox.',
+      connect:'O Xbox não concluiu a autenticação da sessão.',
+      sdp:'Falha ao negociar vídeo e áudio com o Xbox.',
+      ice:'Falha ao negociar a conexão WebRTC.',
+      keepalive:'Falha ao manter a sessão ativa.',
+      reset:'Não foi possível reiniciar a sessão.'
+    };
+    console.warn('[Player action]',stage,'failed',upstreamStatus||'no-http-code');
+    reply(res,upstreamStatus===429?429:upstreamStatus===403?403:502,{
+      error:(messages[stage]||'Falha de comunicação com Xbox Cloud Gaming.')+(upstreamStatus?' (Xbox HTTP '+upstreamStatus+')':''),
+      stage,upstreamStatus:upstreamStatus||null
+    });
+  }
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:8192});
 server.on('upgrade',(req,socket,head)=>{
