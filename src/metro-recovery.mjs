@@ -27,10 +27,10 @@ export function shouldAttemptMetroRecovery({
 }
 
 /**
- * Boot-only safeguard for VIDAA: some games continue producing valid WebRTC
- * frames but the native display plane sticks on one scene. Frame counters
- * cannot detect that state. Try the same local video rebind a single time
- * during an idle part of Metro's first minute, never during normal gameplay.
+ * Boot-only safeguard for VIDAA: the compositor can show a stale image
+ * even while WebRTC receives valid frames. A user holding A to advance the
+ * stuck Metro splash must NOT prevent the recovery. Try one media-only rebind
+ * within a bounded startup window; never run it repeatedly during gameplay.
  */
 export function shouldNudgeMetroBoot({
   title, videoAgeMs, lastInputAgoMs, alreadyNudged = false,
@@ -40,9 +40,8 @@ export function shouldNudgeMetroBoot({
   if (alreadyNudged || !hasVideo || recoveryBusy) return false;
   if (connection !== 'connected' && connection !== 'completed') return false;
   // No mid-game periodic reconnection; expire the boot-time opportunity.
-  if (!Number.isFinite(videoAgeMs) || videoAgeMs < 22000 || videoAgeMs > 60000) return false;
-  // An actively used gamepad suggests the player is already playing.
-  // Do not interrupt their inputs just because the image looks static.
-  if (!Number.isFinite(lastInputAgoMs) || lastInputAgoMs < 6000) return false;
+  if (!Number.isFinite(videoAgeMs) || videoAgeMs < 16000 || videoAgeMs > 45000) return false;
+  // No gamepad-idle requirement: pressing buttons is common precisely when
+  // Metro has frozen. The window and one-shot guard prevent a periodic reset.
   return true;
 }
