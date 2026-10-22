@@ -10,6 +10,7 @@ import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 import {MediaTransitionWatch} from './video-transition-health.mjs';
 import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
+import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -248,21 +249,46 @@ function startVideoHealth(){
     recurrentWebRtcFreezes:freezeEvidence.recentEvents,
     recurrentEvidenceStatus:freezeEvidence.reason
    });
-   // Run on evidence only: no timed repair during Xbox's free ad.
-   const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
-     || audioVideoStallChecks>=3 || recurringMetroFreezes;
-   const visualFrozen=visual?.frozen===true;
-   // VIDAA may leave peer.connectionState on "connecting" even with RTP
-   // flowing. Treat a video-ready stream as connected unless explicitly failed.
+   // VIDAA may report "connecting" while video and controller work.
    const connectedState=peer.connectionState;
    const effectiveState=(connectedState==='failed'||connectedState==='closed'||connectedState==='disconnected')
      ?connectedState:(sample.videoReadyState>=2 &&
        (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
+   // Credits fallback: repeated A with at least one real WebRTC freeze,
+   // bounded to the first five minutes and never automatically replayed.
+   const introFreeze=shouldRecoverMetroIntro({
+    title:launchedStreamingTitle,
+    sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
+    aPresses:inputDebug.aPresses,recentFreezeEvents:freezeEvidence.recentEvents,
+    now,lastAttemptAt:metroLastRecoveryAt,attempts:metroRecoveryAttempts,
+    overlayOpen:gameOverlayOpen,videoReadyState:sample.videoReadyState,
+    hasVideo:Boolean(media?.srcObject),connection:effectiveState
+   });
+   const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
+     || audioVideoStallChecks>=3 || recurringMetroFreezes || introFreeze;
+   const visualFrozen=visual?.frozen===true;
+   const cooldownMs=metroRecoveryAttempts>0
+     ?Math.max(0,90000-(now-metroLastRecoveryAt)):0;
+   notifyParent({type:'xbridge-recovery-decision',
+    metro:needsXboxDialogCompatibility(launchedStreamingTitle),
+    freezeEvents:freezeEvidence.recentEvents,totalFreezes:sample.freezeCount,
+    aPresses:inputDebug.aPresses,
+    streamAgeSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
+    overlayOpen:gameOverlayOpen,attempts:metroRecoveryAttempts,
+    blocker:describeRecoveryBlockers({
+     title:launchedStreamingTitle,
+     sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
+     freezeEvents:freezeEvidence.recentEvents,aPresses:inputDebug.aPresses,
+     attempts:metroRecoveryAttempts,overlayOpen:gameOverlayOpen,
+     hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
+     connection:effectiveState,cooldownMs
+    })
+   });
    if(audioVideoStallChecks>=3)notifyParent({type:'xbridge-freeze-diagnostics',
     visualStatus:'audio-active-video-stalled',visualStillMs:visual?.ageMs||0,
     signalStatus:result.kind});
-   if(recurringMetroFreezes)notifyParent({type:'xbridge-freeze-diagnostics',
-    visualStatus:'webrtc-recurrent-freezes',
+   if(recurringMetroFreezes || introFreeze)notifyParent({type:'xbridge-freeze-diagnostics',
+    visualStatus:introFreeze?'webrtc-metro-intro':'webrtc-recurrent-freezes',
     recentFreezeEvents:freezeEvidence.recentEvents,
     visualStillMs:0,signalStatus:result.kind});
    if(canAutoRecoverStream({
@@ -273,6 +299,7 @@ function startVideoHealth(){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     const kind=audioVideoStallChecks>=3?'audio-active-video-stalled':
+      introFreeze?'metro-intro-a-freeze':
       recurringMetroFreezes?'webrtc-freeze-burst':
       visualFrozen?'visual-still':result.kind;
     status('Possível congelamento detectado ('+kind+'). Recuperando imagem…');
