@@ -1,0 +1,40 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {MenuInputEdges,selectMenuTarget} from '../src/menu-input.mjs';
+import {classifyStreamHealth} from '../src/stream-health.mjs';
+
+test('Android home navigation triggers one A/B/Menu action per press',()=>{
+ const edges=new MenuInputEdges();
+ assert.deepEqual(edges.sample({A:1,Menu:1},1000),['confirm','menu']);
+ assert.deepEqual(edges.sample({A:1,Menu:1},1100),[]);
+ assert.deepEqual(edges.sample({A:0,B:0,Menu:0},1150),[]);
+ assert.deepEqual(edges.sample({B:1},1200),['back']);
+ assert.deepEqual(edges.sample({B:1},1250),[]);
+});
+
+test('Android DPad and analog stick move across catalog with rate limit',()=>{
+ const edges=new MenuInputEdges();
+ assert.deepEqual(edges.sample({DPadRight:1},1000),['right']);
+ assert.deepEqual(edges.sample({DPadRight:1},1080),[]);
+ assert.deepEqual(edges.sample({DPadRight:1},1300),['right']);
+ assert.deepEqual(edges.sample({LeftThumbYAxis:-1},1350),['up']);
+ edges.release();
+ assert.deepEqual(edges.sample({LeftThumbXAxis:-1},1400),['left']);
+});
+
+test('Geometry navigation chooses same-row nearest target',()=>{
+ const element=(x,y)=>({getBoundingClientRect:()=>({left:x,top:y,width:100,height:100})});
+ const a=element(0,0),b=element(140,0),c=element(0,170),d=element(140,170);
+ assert.equal(selectMenuTarget([a,b,c,d],a,'right'),b);
+ assert.equal(selectMenuTarget([a,b,c,d],a,'down'),c);
+ assert.equal(selectMenuTarget([a,b,c,d],d,'left'),c);
+ assert.equal(selectMenuTarget([a,b,c,d],b,'down'),d);
+});
+
+test('WebRTC telemetry separates frozen video decoding from Xbox game splash',()=>{
+ const previous={decoded:100,received:1000,videoWidth:1280,videoHeight:720,connection:'connected'};
+ assert.equal(classifyStreamHealth(previous,{...previous,decoded:115,received:1020}).kind,'active');
+ assert.equal(classifyStreamHealth(previous,{...previous,received:1030}).kind,'decode-stall');
+ assert.equal(classifyStreamHealth(previous,previous,6).kind,'network-stall');
+ assert.equal(classifyStreamHealth(previous,{...previous,connection:'failed'}).kind,'network-error');
+});
