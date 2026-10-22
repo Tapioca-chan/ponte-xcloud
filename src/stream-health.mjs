@@ -7,7 +7,18 @@ export function classifyStreamHealth(previous,current,seconds=6){
  const decodedBefore=Number(previous.decoded)||0,decodedNow=Number(current.decoded)||0;
  const receivedBefore=Number(previous.received)||0,receivedNow=Number(current.received)||0;
  const width=Number(current.videoWidth)||0,height=Number(current.videoHeight)||0;
- if(decodedNow>decodedBefore)return {kind:'active',reason:'Quadros decodificados pela TV',decoded:decodedNow-decodedBefore,width,height};
+ const presentedBefore=Number.isFinite(previous.presented)?Number(previous.presented):null;
+ const presentedNow=Number.isFinite(current.presented)?Number(current.presented):null;
+ const presentationMeasured=presentedBefore!==null&&presentedNow!==null;
+ if(decodedNow>decodedBefore){
+  if(presentationMeasured&&presentedNow===presentedBefore){
+   return {kind:'presentation-stall',reason:'O Xbox envia quadros, mas o navegador não apresenta imagens novas',decoded:decodedNow-decodedBefore,presented:0,width,height};
+  }
+  if(presentationMeasured&&presentedNow>presentedBefore){
+   return {kind:'active',reason:'Vídeo atualizado na tela ('+(presentedNow-presentedBefore)+' quadros)',decoded:decodedNow-decodedBefore,presented:presentedNow-presentedBefore,width,height};
+  }
+  return {kind:'active',reason:'Quadros decodificados; apresentação não mensurável neste VIDAA',decoded:decodedNow-decodedBefore,width,height};
+ }
  if(receivedNow>receivedBefore)return {kind:'decode-stall',reason:'Vídeo recebido, mas a TV não está decodificando novos quadros',width,height};
  if(seconds>=5)return {kind:'network-stall',reason:'Sem novos quadros do servidor Xbox',width,height};
  return {kind:'warmup',reason:'Aguardando vídeo'};
