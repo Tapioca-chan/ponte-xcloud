@@ -5,7 +5,7 @@ import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
-import {shouldRebindMetroVideo} from './metro-recovery.mjs';
+import {shouldAttemptMetroRecovery} from './metro-recovery.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -16,7 +16,7 @@ const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
-let launchedStreamingTitle='',metroRebindAttempted=false;
+let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 // Track each link of Android -> WebRTC gamepad delivery without recording button
 // sequences, Xbox tokens, or session identifiers.
 const inputDebug={androidFrames:0,aPresses:0,gamepadPacketsSent:0,lastAndroidAt:0,lastAAt:0};
@@ -43,13 +43,46 @@ function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;
 }
+async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown'):Promise<boolean>{
+ // Same operation proven useful by the manual Recover Image button. Do not
+ // renegotiate WebRTC, quit the game or change any controller inputs.
+ if(videoRecoveryInFlight)return false;
+ const activePlayer=player;
+ const media=activePlayer?.getVideoElement?.() as HTMLVideoElement|undefined;
+ if(!media?.srcObject)return false;
+ videoRecoveryInFlight=true;
+ try{
+  const stream=media.srcObject;
+  media.pause();
+  media.srcObject=null;
+  media.srcObject=stream;
+  await media.play().catch(()=>{});
+  if(player!==activePlayer)return false;
+  try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
+  healthPrevious=null;
+  freezeChecks=0;
+  if(reason==='automatic'){
+   notifyParent({type:'xbridge-metro-recovery',step:'reattach',kind});
+   status('Metro Exodus: imagem recuperada automaticamente; partida mantida.');
+  }else{
+   status('Vídeo reconectado localmente; solicitado novo quadro ao Xbox, sem sair da partida.');
+  }
+  return true;
+ }catch(_){
+  if(reason==='manual')status('O VIDAA não aceitou recuperar o vídeo. A sessão Xbox continua aberta.');
+  return false;
+ }finally{videoRecoveryInFlight=false}
+}
 function startVideoHealth(){
  stopVideoHealth();
  videoHealthTimer=setInterval(async()=>{
-  if(!player?._peerConnection)return;
+  if(videoHealthBusy || !player?._peerConnection)return;
+  videoHealthBusy=true;
+  const monitoredPlayer=player;
   try{
-   const peer=player._peerConnection;
+   const peer=monitoredPlayer._peerConnection;
    const stats=await peer.getStats();
+   if(player!==monitoredPlayer)return;
    let inbound:any=null;
    stats.forEach((x:any)=>{
     if(x.type==='inbound-rtp'&&(x.kind==='video'||x.mediaType==='video'))inbound=x;
@@ -85,8 +118,8 @@ function startVideoHealth(){
    const sentNow=controller.gamepadPacketsSent;
    const inputPacketsInWindow=sentNow-sentAtPreviousCheck;
    sentAtPreviousCheck=sentNow;
-   if(result.kind==='active')freezeChecks=0;
-   else if(result.kind==='decode-stall'||result.kind==='network-stall'||result.kind==='presentation-stall')freezeChecks++;
+   if(result.kind==='decode-stall'||result.kind==='network-stall'||result.kind==='presentation-stall')freezeChecks++;
+   else freezeChecks=0;
    notifyParent({type:'xbridge-video-health',message:result.reason,
     kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
     decoded:sample.decoded,received:sample.received,presented:sample.presented,
@@ -100,25 +133,26 @@ function startVideoHealth(){
     lastKeyframeRequest=Date.now();
     status(result.reason+'. Solicitado novo quadro ao Xbox.');
    }
-   if(shouldRebindMetroVideo(launchedStreamingTitle,result.kind,freezeChecks,metroRebindAttempted)){
-    metroRebindAttempted=true;
-    // Keyframe was requested first; do a single local reattachment, without
-    // restarting the game or injecting any button presses.
-    if(media?.srcObject){
-     const originalStream=media.srcObject;
-     try{
-      media.pause();
-      media.srcObject=null;
-      media.srcObject=originalStream;
-      void media.play().catch(()=>{});
-      notifyParent({type:'xbridge-metro-recovery',step:'reattach',kind:result.kind});
-      status('Metro Exodus: restauração local da imagem solicitada, sem encerrar a partida.');
-     }catch(_){status('Metro Exodus: tentativa automática não foi aceita pelo navegador.');}
-    }
+   if(shouldAttemptMetroRecovery({
+     title:launchedStreamingTitle,
+     kind:result.kind,
+     consecutiveChecks:freezeChecks,
+     attempts:metroRecoveryAttempts,
+     lastAttemptAt:metroLastRecoveryAt,
+     now:Date.now(),
+     hasVideo:Boolean(media?.srcObject),
+     connection:peer.connectionState
+   })){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=Date.now();
+    // A local media-only repair is safe to try a few times during an ongoing
+    // session; space attempts out so the TV is not repeatedly disturbed.
+    const recovered=await recoverXboxVideoLocally('automatic',result.kind);
+    if(!recovered)metroRecoveryAttempts--;
    }
   }catch(_){
    notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
-  }
+  }finally{videoHealthBusy=false}
  },6500);
 }
 let map:any={},mappingKey='',calStep=-1,calWaiting=0,previous:any,baseAxes:number[]=[];
@@ -219,7 +253,8 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   // Marvel Rivals and other working games retain their existing handshake.
   const launchedName=String($('games').selectedOptions?.[0]?.textContent||'');
   launchedStreamingTitle=launchedName;
-  metroRebindAttempted=false;
+  metroRecoveryAttempts=0;
+  metroLastRecoveryAt=0;
   const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   player.init();
@@ -460,22 +495,9 @@ if (embedded) {
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
   } else if(event.data?.type==='xbridge-recover-video'){
-   // Explicit user recovery, not automatic: rebind the existing video stream
-   // without restarting the Xbox session, then request a fresh keyframe.
-   void (async()=>{
-    try{
-     const video=player?.getVideoElement?.() as HTMLVideoElement|undefined;
-     if(video&&video.srcObject) {
-      const stream=video.srcObject;
-      video.pause();
-      video.srcObject=null;
-      video.srcObject=stream;
-      await video.play().catch(()=>{});
-     }
-     try{player?._channels.control.requestKeyframeRequest(true)}catch(_){}
-     status('Vídeo reconectado localmente; solicitado novo quadro ao Xbox, sem sair da partida.');
-    }catch(_){status('A recuperação de vídeo não foi aceita pelo VIDAA. A sessão Xbox continua aberta.');}
-   })();
+   // The manual action remains available even if automated diagnostics cannot
+   // measure the video frame compositor on this version of VIDAA.
+   void recoverXboxVideoLocally('manual');
   } else if(event.data?.type==='xbridge-resume-media'){
    // A user gesture in the TV settings may unlock media on VIDAA.
    void (async()=>{
