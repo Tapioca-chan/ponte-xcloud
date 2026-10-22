@@ -302,7 +302,7 @@ if(action==='recent'){
     if(action==='start'){
      if(typeof body.id!=='string'||body.id.length>160)throw Error('Jogo inválido');
      if(room.session)throw Error('Encerre a sala antes de iniciar outra sessão');
-     room.config={id:body.id,type:'cloud',language:'pt-BR',host:room.host,resolution:720};
+     room.config={id:body.id,type:'cloud',language:'pt-BR',host:room.host,resolution:1080};
      const session:any=await stream.startStream(room.token,room.config);if(!session.sessionPath)throw Error('Sessão não criada');room.session=session;reply(res,200,{sessionId:session.sessionId,sessionPath:session.sessionPath});return;
     }
     if(!room.session)throw Error('Inicie um jogo');
