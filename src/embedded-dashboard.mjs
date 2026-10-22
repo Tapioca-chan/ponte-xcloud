@@ -40,6 +40,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
             <small>Esse código expira. Se necessário, gere outro com o botão abaixo.</small>
           </div>
           <div id="xb-login-feedback" role="status" class="xb-login-feedback">Aguardando o servidor do xBridge.</div>
+          <button id="xb-resume-retry" type="button" class="xb-button xb-button-muted" hidden>↻ Restaurar sessão Xbox salva novamente</button>
         </div>
       </section>
 
@@ -304,6 +305,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     }catch(e){$('xb-login-feedback').textContent='Não foi possível iniciar a autorização: '+String(e.message||e).slice(0,160)}
     finally{$('login').disabled=false;$('login').textContent='Gerar outro código Microsoft ↗'}
   }
+  $('xb-resume-retry').onclick=()=>window.location.reload();
   $('login').onclick=()=>{void beginAuth()};
   $('verify').onclick=()=>{void pollAuth()};
   window.addEventListener('pagehide',stopPolling,{once:true});
