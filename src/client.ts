@@ -14,6 +14,7 @@ import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-st
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
+import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -34,6 +35,7 @@ let lastVideoTelemetryAt=0;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
+let metroStartupKeyframes=new MetroStartupKeyframePreflight();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
 const trackedMediaEvents=['waiting','stalled','playing','pause','emptied','loadeddata','loadstart','resize','error','suspend'];
 function trackVideoTransitions(media:HTMLVideoElement|undefined){
@@ -84,6 +86,7 @@ function stopVideoHealth(){
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
+ metroStartupKeyframes.reset();
 }
 // Coarse operational media state only; no video pixels, raw gamepad packets,
 // session IDs, room codes, Microsoft credentials or token content.
@@ -317,6 +320,28 @@ function startVideoHealth(){
    const effectiveState=(connectedState==='failed'||connectedState==='closed'||connectedState==='disconnected')
      ?connectedState:(sample.videoReadyState>=2 &&
        (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
+   // Before Metro reaches gameplay, request fresh decoder reference frames
+   // when early WebRTC freezes occur. This is proactive but non-destructive:
+   // unlike Recover Image it never detaches srcObject or flashes the ad.
+   const controlChannel=player?._channels?.control as any;
+   const controlOpen=controlChannel?._dataChannel?.readyState==='open';
+   if(controlOpen && metroStartupKeyframes.observe({
+    metro:needsXboxDialogCompatibility(launchedStreamingTitle),
+    now,firstVideoAt:nativePlaneFirstVideoAt,
+    freezeCount:sample.freezeCount,
+    decodedDelta:videoPipeline.decodedDelta,
+    receivedDelta:videoPipeline.receivedDelta,
+    videoReadyState:sample.videoReadyState,
+    connected:effectiveState==='connected'||effectiveState==='completed',
+    overlayOpen:gameOverlayOpen
+   })){
+    try{
+     controlChannel.requestKeyframeRequest(true);
+     notifyParent({type:'xbridge-metro-preflight',step:'startup-keyframe',
+       count:metroStartupKeyframes.requests});
+     traceVideo('preflight',{kind:'startup-keyframe'});
+    }catch(_){}
+   }
    // Credits fallback: repeated A with at least one real WebRTC freeze,
    // bounded to the first five minutes and never automatically replayed.
    // Evaluate eligibility independently from overlay visibility. If the
