@@ -6,8 +6,11 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     <div class="xb-console">
       <div class="xb-app-top">
         <div class="xb-brand"><span class="xb-brand-orbit" aria-hidden="true">✕</span>
-          <div><strong>XBOX <span>CLOUD GAMING</span></strong><small>via xBridge • cliente experimental</small></div></div>
-        <div class="xb-app-tag"><span class="xb-signal"></span> Xbox Cloud • WebRTC</div>
+          <div><strong>xBridge <span>CLOUD</span></strong><small>Xbox Cloud Gaming • cliente independente</small></div></div>
+        <nav class="xb-console-nav" aria-label="Biblioteca"><button type="button" id="xb-nav-home" class="is-active">Início</button><button type="button" id="xb-nav-recent">Jogados recentemente</button><button type="button" id="xb-nav-library">Todos os jogos</button></nav>
+        <div class="xb-app-tag"><span class="xb-signal"></span><span id="xb-auth-badge">Xbox não conectada</span>
+          <button type="button" id="xb-settings-toggle" class="xb-gear" aria-label="Configurações">⚙</button>
+        </div>
       </div>
 
       <section class="xb-gateway" id="xb-auth">
@@ -71,14 +74,19 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         <select id="embed-games" aria-label="Jogo selecionado" hidden></select>
       </section>
 
-      <div class="xb-player-tools" id="xb-player-tools">
-        <span class="xb-tool-tip">Xbox Cloud Gaming • transmissão experimental direta por WebRTC</span>
+      <aside class="xb-settings-panel" id="xb-settings-panel" hidden aria-label="Configurações de jogos">
+        <div class="xb-settings-heading"><div><div class="xb-label">XBRIDGE</div><h2>Configurações</h2></div><button type="button" id="xb-settings-close" aria-label="Fechar configurações">✕</button></div>
+        <p class="xb-settings-hint">Os comandos técnicos ficam aqui. Sua biblioteca permanece limpa.</p>
+        <div class="xb-player-tools" id="xb-player-tools">
         <div class="xb-player-buttons">
           <button id="embed-sound" class="xb-button xb-button-muted">Ativar áudio</button>
           <button id="embed-fullscreen" class="xb-button xb-button-muted">Tela cheia</button>
-          <button id="embed-stop" class="xb-button xb-button-danger">Encerrar sessão</button>
+          <button id="embed-stop" class="xb-button xb-button-danger">Encerrar partida / fechar player</button>
+          <button id="xb-logout" class="xb-button xb-button-danger" type="button">Desconectar conta Xbox deste navegador</button>
         </div>
-      </div>
+        </div>
+        <p class="xb-settings-hint">A conta pode ser restaurada automaticamente enquanto o servidor auxiliar mantiver a sessão. Uma reinicialização do Render ainda exigirá novo login.</p>
+      </aside>
     </div>`;
   // The standalone player already uses these canonical element IDs.
   // The redesigned embedded markup deliberately prefixes them to avoid
@@ -98,6 +106,27 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   }
   $('fullscreen').onclick=()=>notifyParent({type:'xbridge-fullscreen'});
   let authorized=false, authPolling=false, authTimer=0, authDeadline=0, authUri='', canAsk=false;
+  const settingsPanel=$('xb-settings-panel');
+  const toggleSettings=()=>{settingsPanel.hidden=!settingsPanel.hidden};
+  $('xb-settings-toggle').onclick=toggleSettings;
+  $('xb-settings-close').onclick=()=>{settingsPanel.hidden=true};
+  $('xb-nav-home').onclick=()=>setFilter('cloud');
+  $('xb-nav-recent').onclick=()=>setFilter('recent');
+  $('xb-nav-library').onclick=()=>setFilter('cloud');
+  $('xb-logout').onclick=async()=>{
+    if(!authorized){settingsPanel.hidden=true;return}
+    $('xb-logout').disabled=true;
+    try{
+      await api('logout');
+      authorized=false;stopPolling();settingsPanel.hidden=true;
+      show('xb-library',false);show('xb-auth',true);show('xb-authorization',false);
+      $('login').disabled=false;$('xb-auth-badge').textContent='Xbox não conectada';
+      status('Conta desconectada. Use o QR Code para entrar novamente.');
+      $('xb-login-feedback').textContent='Conta Xbox desconectada com sucesso.';
+    }catch(e){
+      status('Não foi possível desconectar a conta Xbox.');
+    }finally{$('xb-logout').disabled=false}
+  };
   let currentGames=[], recentGames=[], nextOffset=0, loading=false, selectedId='', currentSearch='', activeFilter='cloud';
   function show(id, visible) { const el=$(id); if(el)el.hidden=!visible; }
   function authInfo(message){$('xb-auth-state').textContent=message;$('xb-login-feedback').textContent=message;}
@@ -206,6 +235,9 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   $('xb-game-search').addEventListener('input',e=>{currentSearch=e.target.value;displayGames()});
   function setFilter(mode){
     activeFilter=mode;
+    settingsPanel.hidden=true;
+    for(const name of ['home','recent','library']) $('xb-nav-'+name).classList.toggle('is-active',
+      mode==='recent'?name==='recent':name==='home'||name==='library');
     for (const key of ['cloud','access','recent'])
       $('xb-filter-'+key).classList.toggle('is-active',mode===key);
     displayGames();
@@ -230,6 +262,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   async function finishAuth(){
     if(authorized)return;
     authorized=true;stopPolling();show('xb-auth',false);show('xb-library',true);
+    $('xb-auth-badge').textContent='Xbox conectada';
     authInfo('Conta conectada.');
     status('Conta Xbox conectada. Carregando jogos reais…');
     await loadCatalog(true);
@@ -276,6 +309,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   window.addEventListener('pagehide',stopPolling,{once:true});
   return {
     ready(){ $('login').disabled=false; $('xb-login-feedback').textContent='Pronto. Autorize com sua conta Microsoft.'; },
+    restored(){ return finishAuth(); },
     error(message){ $('xb-login-feedback').textContent=message; }
   };
 }
