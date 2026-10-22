@@ -37,7 +37,19 @@ const server=http.createServer(async(req,res)=>{
    try {
     if(action==='close'){for(const s of room.sockets.values())s.close();rooms.delete(body.room);reply(res,200,{ok:true});return;}
     if(action==='login'){
-     const data=await auth.startMsalAuth();room.device=data;reply(res,200,{user_code:data.user_code,verification_uri:data.verification_uri,expires_in:data.expires_in,interval:data.interval});return;
+     const data=await auth.startMsalAuth();
+     room.device=data;
+     // Microsoft may provide an already prefilled device verification URL.
+     // Only ever send the official HTTPS Microsoft URL back to the client.
+     let completeUrl='';
+     if(typeof data.verification_uri_complete==='string'){
+      try{
+       const u=new URL(data.verification_uri_complete);
+       const h=u.hostname.toLowerCase();
+       if(u.protocol==='https:'&&(h==='microsoft.com'||h.endsWith('.microsoft.com')||h==='live.com'||h.endsWith('.live.com')||h==='microsoftonline.com'||h.endsWith('.microsoftonline.com')))completeUrl=u.href;
+      }catch{}
+     }
+     reply(res,200,{user_code:data.user_code,verification_uri:data.verification_uri,verification_uri_complete:completeUrl,expires_in:data.expires_in,interval:data.interval});return;
     }
     if(action==='verify'){
      if(!room.device)throw Error('Inicie o login');
