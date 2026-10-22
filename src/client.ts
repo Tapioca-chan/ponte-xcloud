@@ -54,15 +54,24 @@ function startVideoHealth(){
    if(!inbound)return;
    const media=player.getVideoElement?.() as (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
    const compositorFrames=Number(media?.__xbridgePresentedFrames)||0;
-   let qualityFrames=0;
-   try { qualityFrames=Number(media?.getVideoPlaybackQuality?.()?.totalVideoFrames)||0; } catch(_){}
-   // Some VIDAA builds lack requestVideoFrameCallback; use quality count only
-   // when it reports nonzero data. Null means presentation is not measurable.
-   const presented=compositorFrames>0?compositorFrames:qualityFrames>0?qualityFrames:null;
+   let qualityFrames=0,droppedFrames=0;
+   try {
+    const quality=media?.getVideoPlaybackQuality?.();
+    qualityFrames=Number(quality?.totalVideoFrames)||0;
+    droppedFrames=Number(quality?.droppedVideoFrames)||0;
+   } catch(_){}
+   // getVideoPlaybackQuality().totalVideoFrames includes displayed AND dropped
+   // frames. It is NOT a proof that a frame reached the display compositor.
+   // Use only requestVideoFrameCallback for that stronger signal.
+   const presented=compositorFrames>0?compositorFrames:null;
    const sample={
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
     presented,
+    videoQualityFrames:qualityFrames,
+    videoDroppedFrames:droppedFrames,
+    videoPaused:Boolean(media?.paused),
+    videoReadyState:Number(media?.readyState)||0,
     videoWidth:Number(inbound.frameWidth)||0,
     videoHeight:Number(inbound.frameHeight)||0,
     connection:peer.connectionState
@@ -78,6 +87,8 @@ function startVideoHealth(){
    notifyParent({type:'xbridge-video-health',message:result.reason,
     kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
     decoded:sample.decoded,received:sample.received,presented:sample.presented,
+    quality:sample.videoQualityFrames,dropped:sample.videoDroppedFrames,
+    paused:sample.videoPaused,readyState:sample.videoReadyState,
     input:{...controller,packetsInWindow:inputPacketsInWindow}});
    if(freezeChecks>=2&&Date.now()-lastKeyframeRequest>20000){
     // A keyframe request is a safe recovery attempt; the server may ignore it.
@@ -166,7 +177,11 @@ $('play').onclick=async()=>{
   const inputChannel=player._channels.input as any;
   const originalInputSend=inputChannel.send.bind(inputChannel);
   inputChannel.send=(payload:any)=>{
-   if(inputChannel._dataChannel?.readyState==='open')inputDebug.gamepadPacketsSent++;
+   // Xbox input packets begin with a little-endian report mask:
+   // 2 = Gamepad. Do not count metadata-only reports as controller traffic.
+   if(inputChannel._dataChannel?.readyState==='open' &&
+      payload instanceof DataView && payload.byteLength>=2 &&
+      (payload.getUint16(0,true)&2)!==0)inputDebug.gamepadPacketsSent++;
    return originalInputSend(payload);
   };
   const channel=player._channels.control;
