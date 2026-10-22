@@ -12,7 +12,9 @@ export default class MessageHandler {
     }
 
     handle(data) {
-        console.log('[MessageHandler] Handling:', data)
+        // Avoid logging untrusted Xbox payloads, which could include private
+        // account or game text. The sanitized event name below is sufficient.
+        // DataChannel payloads are not server logs and must remain private.
         switch(data.target){
             case '/streaming/sessionLifetimeManagement/serverInitiatedDisconnect':
                 this.completeTransaction(data.id, '')
@@ -36,9 +38,14 @@ export default class MessageHandler {
                 // never the full request body, account/session IDs or tokens.
                 // Useful when a particular title stalls but WebRTC still works.
                 if(typeof data.target === 'string' && data.target.startsWith('/streaming/systemUi/')) {
-                    this.notifyXboxEvent('Outro evento de interface Xbox não implementado')
+                    // Only transport a constrained Xbox message TYPE, never
+                    // its content, transaction ID, auth data or arguments.
+                    const target = String(data.target)
+                    const match = target.match(/^\/streaming\/systemUi\/(?:messages\/)?([A-Za-z][A-Za-z0-9]{0,70})$/)
+                    const type = match ? match[1] : 'FormatoDeEventoDesconhecido'
+                    const isTransaction = data.type === 'TransactionStart'
+                    this.notifyXboxEvent('Xbox pediu: '+type+(isTransaction?' (aguarda resposta)':' (aviso)'))
                 }
-                console.log('[MessageChannel] Unhandled transaction:', data)
         }
 
     }
