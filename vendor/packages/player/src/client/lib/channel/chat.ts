@@ -8,13 +8,24 @@ export default class ChatChannel extends Channel {
     constructor(player:any){
         super(player)
 
-        navigator.permissions.query({ name: 'microphone' }).then((permissionStatus) => {
-            this._micPermissions = permissionStatus.state
-        
-            permissionStatus.onchange = () => {
-                this._micPermissions = permissionStatus.state
+        // VIDAA and other Smart-TV browsers may lack Permissions API or
+        // reject the microphone descriptor. Chat is optional for game streaming.
+        // Never crash player initialization over microphone detection.
+        if (typeof navigator !== 'undefined' &&
+            typeof navigator.permissions?.query === 'function') {
+            try {
+                navigator.permissions.query({ name: 'microphone' } as PermissionDescriptor)
+                    .then((permissionStatus) => {
+                        this._micPermissions = permissionStatus.state
+                        permissionStatus.onchange = () => {
+                            this._micPermissions = permissionStatus.state
+                        }
+                    })
+                    .catch(() => { this._micPermissions = 'denied' })
+            } catch (_) {
+                this._micPermissions = 'denied'
             }
-        })
+        }
     }
 
     getChannelName() {
