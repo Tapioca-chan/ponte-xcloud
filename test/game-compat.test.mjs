@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {needsXboxDialogCompatibility} from '../src/game-compat.mjs';
-import {shouldRebindMetroVideo,shouldAttemptMetroRecovery} from '../src/metro-recovery.mjs';
+import {shouldRebindMetroVideo,shouldAttemptMetroRecovery,shouldNudgeMetroBoot} from '../src/metro-recovery.mjs';
 
 test('the Xbox system-dialog compatibility experiment is limited to Metro Exodus',()=>{
  assert.equal(needsXboxDialogCompatibility('Metro Exodus'),true);
@@ -35,4 +35,19 @@ test('automatic Metro repair can retry after cooldown but never loops endlessly'
  assert.equal(shouldAttemptMetroRecovery({...base,connection:'disconnected'}),false);
  assert.equal(shouldAttemptMetroRecovery({...base,title:'Marvel Rivals'}),false);
  assert.equal(shouldAttemptMetroRecovery({...base,consecutiveChecks:1}),false);
+});
+
+test('Metro frozen boot receives one cautious repair despite advancing WebRTC frames',()=>{
+ const base={title:'Metro Exodus',videoAgeMs:24000,lastInputAgoMs:7000,
+  alreadyNudged:false,hasVideo:true,connection:'connected',recoveryBusy:false};
+ assert.equal(shouldNudgeMetroBoot(base),true);
+ assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:21999}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,videoAgeMs:61000}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,lastInputAgoMs:4000}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,alreadyNudged:true}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,hasVideo:false}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,connection:'disconnected'}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,recoveryBusy:true}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,title:'Marvel Rivals'}),false);
+ assert.equal(shouldNudgeMetroBoot({...base,title:'Metro 2033 Redux'}),false);
 });
