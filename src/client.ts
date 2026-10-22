@@ -195,6 +195,7 @@ function startVideoHealth(){
  visualWatchdog=new VideoFreezeWatchdog();
  visualSampleCanvas=document.createElement('canvas');
  lastMeaningfulGamepadAt=Date.now();
+ traceVideo('start',{metro:needsXboxDialogCompatibility(launchedStreamingTitle)});
  videoHealthTimer=setInterval(async()=>{
   if(videoHealthBusy || !player?._peerConnection)return;
   videoHealthBusy=true;
@@ -211,6 +212,10 @@ function startVideoHealth(){
    if(!inbound){
     notifyParent({type:'xbridge-freeze-diagnostics',visualStatus:'video-stats-missing',
      signalStatus:'unknown',visualStillMs:0});
+    if(Date.now()-lastVideoTelemetryAt>19000){
+     lastVideoTelemetryAt=Date.now();
+     traceVideo('unavailable',{kind:'no-video-stats',metro:needsXboxDialogCompatibility(launchedStreamingTitle)});
+    }
     return;
    }
    const media=player.getVideoElement?.() as (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
@@ -468,6 +473,10 @@ function startVideoHealth(){
    }
   }catch(_){
    notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
+   if(Date.now()-lastVideoTelemetryAt>19000){
+    lastVideoTelemetryAt=Date.now();
+    traceVideo('unavailable',{kind:'monitor-error',metro:needsXboxDialogCompatibility(launchedStreamingTitle)});
+   }
   }finally{videoHealthBusy=false}
  },6500);
 }
