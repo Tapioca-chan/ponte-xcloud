@@ -8,6 +8,29 @@ import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
 const rooms=new Map<string,any>();
+// Opaque browser identity. No Microsoft passwords/tokens are sent to the TV.
+// Render's ephemeral memory means this survives page reloads but not a server restart.
+// Durable encrypted storage can be added later without weakening this contract.
+const remembered=new Map<string,{user:any;token:any;host:string;lastRefresh:number;expires:number}>();
+const rememberName='xb_session';
+const rememberMaxAge=30*24*3600;
+function getRememberId(req:any):string {
+ const part=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(rememberName+'='));
+ const key=part?.slice((rememberName+'=').length)||'';
+ return /^[0-9a-f]{48}$/.test(key)?key:'';
+}
+function setRememberCookie(res:any,id:string) {
+ res.setHeader('Set-Cookie',rememberName+'='+id+'; Path=/player; Max-Age='+rememberMaxAge+'; Secure; HttpOnly; SameSite=Strict');
+}
+function clearRememberCookie(res:any) {
+ res.setHeader('Set-Cookie',rememberName+'=; Path=/player; Max-Age=0; Secure; HttpOnly; SameSite=Strict');
+}
+function allocateRoom():any {
+ const id=secret(),tvKey=secret(),phoneKey=secret();
+ const room={id,tvKey,phoneKey,created:Date.now(),sockets:new Map(),busy:false};
+ rooms.set(id,room);
+ return room;
+}
 const auth=new Auth();
 const port=Number(process.env.PORT||3000);
 const origins=(process.env.ALLOWED_ORIGINS||'http://localhost:3000').split(',');
@@ -30,13 +53,55 @@ const server=http.createServer(async(req,res)=>{
    const body=JSON.parse(raw||'{}');const action=u.pathname.slice(5);actionName=action;
    if(action==='create'){
     if(rooms.size>=20){reply(res,429,{error:'Limite de salas; tente depois'});return;}
-    const id=secret(),tvKey=secret(),phoneKey=secret();rooms.set(id,{tvKey,phoneKey,created:Date.now(),sockets:new Map(),busy:false});reply(res,200,{id,tvKey,phoneKey});return;
+    const room=allocateRoom();reply(res,200,{id:room.id,tvKey:room.tvKey,phoneKey:room.phoneKey});return;
+   }
+   if(action==='resume'){
+    // Only the HttpOnly first-party cookie can identify the remembered account.
+    // POST + Strict SameSite prevent login CSRF from other websites.
+    const key=getRememberId(req),saved=remembered.get(key);
+    if(!saved||saved.expires<Date.now()){
+     if(key)remembered.delete(key);
+     clearRememberCookie(res);
+     reply(res,401,{ok:false,remembered:false});return;
+    }
+    if(rooms.size>=20){reply(res,429,{error:'Limite de sessões Xbox'});return;}
+    if(Date.now()-saved.lastRefresh>25*60*1000){
+     try{
+      const refreshed=await auth.refreshUserToken(saved.user);
+      if(!refreshed?.access_token)throw Error('Autorização Microsoft expirada');
+      const tokens=await auth.getStreamingTokens(refreshed);
+      const cloud=tokens.xCloudToken?.data;
+      if(!cloud?.gsToken)throw Error('Não há token de nuvem');
+      const region=cloud.offeringSettings?.regions?.find((r:any)=>r.isDefault)||cloud.offeringSettings?.regions?.[0];
+      const host=new URL(region.baseUri);
+      if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
+      saved.user=refreshed;saved.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
+      saved.host=host.origin;saved.lastRefresh=Date.now();
+     }catch{
+      remembered.delete(key);clearRememberCookie(res);
+      reply(res,401,{ok:false,remembered:false,reason:'Microsoft requer nova autorização'});return;
+     }
+    }
+    saved.expires=Date.now()+rememberMaxAge*1000;
+    setRememberCookie(res,key);
+    const room=allocateRoom();
+    room.user=saved.user;room.token=saved.token;room.host=saved.host;room.rememberKey=key;
+    reply(res,200,{ok:true,remembered:true,id:room.id,tvKey:room.tvKey});return;
    }
    const room=rooms.get(body.room);if(!room||req.headers.authorization!=='Bearer '+room.tvKey){reply(res,401,{error:'Sala inválida ou expirada'});return;}
    if(room.busy){reply(res,409,{error:'Aguarde a operação atual'});return;}
    room.busy=true;
    try {
     if(action==='close'){for(const s of room.sockets.values())s.close();rooms.delete(body.room);reply(res,200,{ok:true});return;}
+    if(action==='logout'){
+     const key=getRememberId(req);
+     if(key&&room.rememberKey===key)remembered.delete(key);
+     if(room.rememberKey)remembered.delete(room.rememberKey);
+     clearRememberCookie(res);
+     delete room.user;delete room.token;delete room.host;delete room.device;
+     delete room.rememberKey;delete room.session;delete room.config;
+     reply(res,200,{ok:true});return;
+    }
     if(action==='reset'){
      // Best-effort termination permits a new game without Microsoft re-login.
      const old=room.session,config=room.config;
@@ -74,7 +139,13 @@ const server=http.createServer(async(req,res)=>{
      if(!cloud?.gsToken)throw Error('Conta sem token xCloud');
      const region=cloud.offeringSettings?.regions?.find((r:any)=>r.isDefault)||cloud.offeringSettings?.regions?.[0];
      const host=new URL(region.baseUri);if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
-     room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;delete room.device;reply(res,200,{ok:true});return;
+     room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;
+     // Remember only an opaque secret in the TV browser; tokens remain server-side.
+     const previous=getRememberId(req);if(previous)remembered.delete(previous);
+     const key=secret();room.rememberKey=key;
+     remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
+     setRememberCookie(res,key);
+     delete room.device;reply(res,200,{ok:true,remembered:true});return;
     }
     if(!room.token){reply(res,401,{error:'Faça login primeiro'});return;}
         if(action==='catalog'){
@@ -176,10 +247,12 @@ if(action==='recent'){
     const raw=e instanceof Error?e.message:'';
     const matched=raw.match(/(?:Streaming HTTP |indisponível \()([45][0-9]{2})/i);
     const upstreamStatus=matched?Number(matched[1]):undefined;
-    const allowedActions=new Set(['create','login','verify','catalog','recent','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
+    const allowedActions=new Set(['create','resume','logout','login','verify','catalog','recent','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
     const stage=allowedActions.has(actionName)?actionName:'init';
     const messages:Record<string,string>={
       create:'Não foi possível criar a sala de jogos.',
+      resume:'Não foi possível restaurar a conta Xbox.',
+      logout:'Não foi possível encerrar a conta Xbox.',
       login:'Não foi possível iniciar a autorização Microsoft.',
       verify:'Não foi possível confirmar a autorização Xbox.',
       catalog:'Falha ao carregar o catálogo Xbox.',
@@ -218,5 +291,8 @@ server.on('upgrade',(req,socket,head)=>{
   ws.on('close',()=>{clearTimeout(timeout);if(room?.sockets.get(role)===ws){room.sockets.delete(role);if(role==='phone')room.sockets.get('tv')?.send(JSON.stringify({type:'frame',frame:sanitize({})}));}});
  });
 });
-setInterval(()=>{for(const[id,r]of rooms){if(Date.now()-r.created>4*3600000){for(const s of r.sockets.values())s.close();rooms.delete(id);}}},60000).unref();
+setInterval(()=>{
+ for(const[id,r]of rooms){if(Date.now()-r.created>4*3600000){for(const s of r.sockets.values())s.close();rooms.delete(id);}}
+ for(const [key,saved] of remembered){if(Date.now()>saved.expires)remembered.delete(key);}
+},60000).unref();
 server.listen(port,'0.0.0.0',()=>console.log('Ponte xCloud experimental pronta na porta '+port));
