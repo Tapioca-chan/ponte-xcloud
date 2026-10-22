@@ -32,7 +32,15 @@ export default class authController {
             throw new Error('No gssv token found. Please authenticate first.')
         }
 
-        const _xhomeToken = await msal.getStreamToken(gssvToken.data.Token, 'xhome')
+        // xHome (local-console streaming) is optional for the xCloud browser.
+        // A failure here must not make a valid Microsoft refresh token appear
+        // invalid and force another device-code login on the VIDAA television.
+        let _xhomeToken:Awaited<ReturnType<typeof msal.getStreamToken>>|undefined
+        try {
+            _xhomeToken = await msal.getStreamToken(gssvToken.data.Token, 'xhome')
+        } catch (_) {
+            _xhomeToken = undefined
+        }
 
         let _xcloudToken:typeof _xhomeToken|undefined
         try {
