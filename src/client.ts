@@ -5,6 +5,7 @@ import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
+import {shouldRebindMetroVideo} from './metro-recovery.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -15,6 +16,7 @@ const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+let launchedStreamingTitle='',metroRebindAttempted=false;
 // Track each link of Android -> WebRTC gamepad delivery without recording button
 // sequences, Xbox tokens, or session identifiers.
 const inputDebug={androidFrames:0,aPresses:0,gamepadPacketsSent:0,lastAndroidAt:0,lastAAt:0};
@@ -97,6 +99,22 @@ function startVideoHealth(){
     player._channels.control.requestKeyframeRequest(true);
     lastKeyframeRequest=Date.now();
     status(result.reason+'. Solicitado novo quadro ao Xbox.');
+   }
+   if(shouldRebindMetroVideo(launchedStreamingTitle,result.kind,freezeChecks,metroRebindAttempted)){
+    metroRebindAttempted=true;
+    // Keyframe was requested first; do a single local reattachment, without
+    // restarting the game or injecting any button presses.
+    if(media?.srcObject){
+     const originalStream=media.srcObject;
+     try{
+      media.pause();
+      media.srcObject=null;
+      media.srcObject=originalStream;
+      void media.play().catch(()=>{});
+      notifyParent({type:'xbridge-metro-recovery',step:'reattach',kind:result.kind});
+      status('Metro Exodus: restauração local da imagem solicitada, sem encerrar a partida.');
+     }catch(_){status('Metro Exodus: tentativa automática não foi aceita pelo navegador.');}
+    }
    }
   }catch(_){
    notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
@@ -197,6 +215,8 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   // browser stream launches while the independent client stalls at its intro.
   // Marvel Rivals and other working games retain their existing handshake.
   const launchedName=String($('games').selectedOptions?.[0]?.textContent||'');
+  launchedStreamingTitle=launchedName;
+  metroRebindAttempted=false;
   const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   player.init();
@@ -421,6 +441,16 @@ if (embedded) {
     $('play').disabled=false;
     status('Pronto para escolher outro jogo. Conta Xbox mantida.');
    })();
+  } else if(event.data?.type==='xbridge-reannounce-gamepad'){
+   // Reannounce the existing virtual controller without detaching it.
+   // Deliberately never fake A/Start/Menu input to advance a game.
+   const control=player?._channels?.control;
+   const handler=control?.getGamepadHandlers?.()?.[0];
+   if(handler && control?._dataChannel?.readyState==='open' && control.reannounceStableGamepad?.()){
+    status('Controle reapresentado ao Xbox. Aperte A no celular para testar.');
+   }else{
+    status('Controle ainda não pronto. Confira o estado do canal nas configurações.');
+   }
   } else if(event.data?.type==='xbridge-reconnect-media'){
    // Explicit user action: preserve Xbox account and game session, only
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
