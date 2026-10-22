@@ -170,7 +170,15 @@ $('play').onclick=async()=>{
   }
   if(!ready)throw Error('O Xbox não concluiu o preparo do jogo.');
   phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
-  player=new Player('playerContainer');player.init();
+  player=new Player('playerContainer');
+  // Compatibility experiment is scoped to Metro Exodus, whose official
+  // browser stream launches while the independent client stalls at its intro.
+  // Marvel Rivals and other working games retain their existing handshake.
+  const launchedName=String($('games').selectedOptions?.[0]?.textContent||'');
+  const metroSystemDialogCompat=/metro\s+exodus/i.test(launchedName);
+  (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
+  player.init();
+  if(metroSystemDialogCompat)announce('Metro Exodus: monitorando possíveis confirmações Xbox.');
   clearInputHealth();
   // Count packets actually sent to the Xbox input channel, independently of
   // arrival from Android. Preserve the original send semantics.
