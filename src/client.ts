@@ -189,7 +189,7 @@ function startVideoHealth(){
     visualStatus:visual?.status||'unavailable',
     visualStillMs:Math.round(visual?.ageMs||0),
     signalStatus:result.kind,
-    nativeBlindMetro:Boolean(nativeBlind && /\\bmetro\\s+exodus\\b/i.test(launchedStreamingTitle)),
+    nativeBlindMetro:Boolean(nativeBlind && needsXboxDialogCompatibility(launchedStreamingTitle)),
     nativeBlindNextSec:nativeBlind&&nativePlaneFirstVideoAt?
      Math.max(0,Math.ceil(((metroRecoveryAttempts>0?
       Math.max(nativePlaneFirstVideoAt+120000,metroLastRecoveryAt+240000):
