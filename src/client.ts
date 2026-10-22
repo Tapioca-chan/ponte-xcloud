@@ -13,6 +13,7 @@ import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './metro-native-plane-autorepair.mjs';
+import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -32,6 +33,7 @@ let queuedMetroIntroRecovery=false;
 let lastVideoTelemetryAt=0;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
+let earlyFreezeWatch=new EarlyFreezeRiseWatch();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
 const trackedMediaEvents=['waiting','stalled','playing','pause','emptied','loadeddata','loadstart','resize','error','suspend'];
 function trackVideoTransitions(media:HTMLVideoElement|undefined){
@@ -81,7 +83,7 @@ function stopVideoHealth(){
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
- webRtcFreezeWatch.reset();
+ webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
 }
 // Coarse operational media state only; no video pixels, raw gamepad packets,
 // session IDs, room codes, Microsoft credentials or token content.
@@ -286,6 +288,7 @@ function startVideoHealth(){
    // visual freeze unobservable. Keep a separate, clearly labelled preventive
    // compatibility refresh rather than falsely claiming freeze detection.
    if(sample.videoReadyState>=2 && sample.decoded>0 && !nativePlaneFirstVideoAt)nativePlaneFirstVideoAt=now;
+   const earlyFreezeRises=earlyFreezeWatch.observe({now,freezeCount:sample.freezeCount});
    const freezeEvidence=webRtcFreezeWatch.observe({
     now,freezeCount:sample.freezeCount,
     decodedDelta:videoPipeline.decodedDelta,
@@ -407,7 +410,7 @@ function startVideoHealth(){
     connection:effectiveState,overlayOpen:gameOverlayOpen,
     recoveryBusy:videoRecoveryInFlight,enabled:opaqueRepairEnabled,
     lastManualRecoveryAt,attempts:metroRecoveryAttempts,
-    lastSoftRecoveryAt
+    earlyFreezeRises,lastSoftRecoveryAt
    };
    const doSoft=shouldStartMetroOpaqueRepair(opaqueRepair);
    const doStrong=shouldEscalateMetroOpaqueRepair(opaqueRepair);
@@ -416,7 +419,7 @@ function startVideoHealth(){
     traceVideo('heartbeat',{
      metro:needsXboxDialogCompatibility(launchedStreamingTitle),
      ageSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
-     freezeCount:sample.freezeCount,decoded:sample.decoded,
+     freezeCount:sample.freezeCount,earlyFreezeRises,decoded:sample.decoded,
      visualBlind:nativeBlind,overlay:gameOverlayOpen,
      ready:sample.videoReadyState>=2,
      connected:effectiveState==='connected'||effectiveState==='completed',
