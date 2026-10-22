@@ -83,14 +83,27 @@ $('play').onclick=async()=>{
   player=new Player('playerContainer');player.init();
   const channel=player._channels.control;
   const original=channel.sendAuthorization.bind(channel);
-  channel.sendAuthorization=()=>{
+  let controlRegistered=false;
+  const registerGamepad=()=>{
+   if(controlRegistered)return;
+   const dataChannel=(channel as any)._dataChannel as RTCDataChannel;
+   if(dataChannel?.readyState!=='open'){
+    // The message-channel handshake may beat the control channel on slower
+    // VIDAA devices. Previously the authorization and gamepadChanged packets
+    // could be silently discarded, leaving the running game uncontrollable.
+    if(dataChannel)dataChannel.addEventListener('open',registerGamepad,{once:true});
+    announce('Aguardando canal de controle do Xbox…');
+    return;
+   }
+   controlRegistered=true;
    original();
    channel.sendGamepadState(0,true,{
-    getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),
+    getGamepadState:()=>Date.now()-lastFrame<650?frame:sanitize({}),
     handleVibration:()=>{},detach:()=>{}
    });
    notifyParent({type:'xbridge-control-ready'});
   };
+  channel.sendAuthorization=registerGamepad;
   player._peerConnection.addEventListener('connectionstatechange',()=>{
    const state=player._peerConnection.connectionState;
    announce('Conexão de vídeo: '+state);
