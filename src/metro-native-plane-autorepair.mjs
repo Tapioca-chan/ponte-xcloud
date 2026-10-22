@@ -18,14 +18,22 @@ const supported = a => needsXboxDialogCompatibility(a.title) &&
 export function shouldStartMetroOpaqueRepair(a){
  if(!supported(a))return false;
  const age=a.now-a.firstVideoAt;
- return age>=105000 && age<=210000 && a.attempts===0 &&
-   !(a.lastSoftRecoveryAt>0);
+ const earlyEvidence=Number.isInteger(a.earlyFreezeRises) &&
+   a.earlyFreezeRises>=2 && age>=50000 && age<=120000;
+ return (earlyEvidence || age>=105000 && age<=210000) &&
+   a.attempts===0 && !(a.lastSoftRecoveryAt>0);
 }
 export function shouldEscalateMetroOpaqueRepair(a){
  if(!supported(a))return false;
  const age=a.now-a.firstVideoAt;
- return age>=130000 && age<=255000 && a.attempts===1 &&
+ // With at least two independent early freeze increases, the prior soft
+ // attempt can be escalated earlier. No timer-only rebind without prior
+ // evidence of repeated WebRTC trouble and an actual soft recovery.
+ const earlyEvidence=Number.isInteger(a.earlyFreezeRises)&&a.earlyFreezeRises>=2;
+ const minAge=earlyEvidence?70000:130000;
+ const minSinceSoft=earlyEvidence?19000:25000;
+ return age>=minAge && age<=255000 && a.attempts===1 &&
    Number.isFinite(a.lastSoftRecoveryAt)&&a.lastSoftRecoveryAt>0 &&
-   a.now-a.lastSoftRecoveryAt>=25000 &&
+   a.now-a.lastSoftRecoveryAt>=minSinceSoft &&
    a.now-a.lastSoftRecoveryAt<=105000;
 }
