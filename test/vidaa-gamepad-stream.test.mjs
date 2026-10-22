@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MenuInputEdges,selectMenuTarget} from '../src/menu-input.mjs';
 import {classifyStreamHealth} from '../src/stream-health.mjs';
+import {compactFrame} from '../src/xbridge-input.mjs';
 
 test('Android home navigation triggers one A/B/Menu action per press',()=>{
  const edges=new MenuInputEdges();
@@ -48,4 +49,14 @@ test('WebRTC presentation freeze is detected even with decoded frames rising',()
  assert.equal(classifyStreamHealth(baseline,advancing).kind,'active');
  const unknown={...baseline,presented:null,decoded:410};
  assert.equal(classifyStreamHealth({...baseline,presented:null},unknown).kind,'active');
+});
+
+test('Android A button is decoded into the Xbox gamepad frame, not just catalog navigation',()=>{
+ const neutral={b:0,t:[0,0],a:[0,0,0,0]};
+ const pressed=compactFrame({...neutral,b:1});
+ assert.equal(pressed.GamepadIndex,0);
+ assert.equal(pressed.A,1);
+ assert.equal(pressed.B,0);
+ assert.equal(compactFrame(neutral).A,0);
+ assert.equal(compactFrame({...neutral,b:1<<9}).Menu,1);
 });
