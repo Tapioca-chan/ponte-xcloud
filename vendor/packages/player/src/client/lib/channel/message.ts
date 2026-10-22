@@ -90,15 +90,22 @@ export default class MessageChannel extends Channel {
         const deviceConfig = JSON.stringify(this.generateMessage('/streaming/characteristics/clientdevicecapabilities', {}))
         this.send(deviceConfig)
 
+        // Request 720p for the low-powered VIDAA browser only. The Xbox
+        // server decides the actual encoded resolution; we do not upsample
+        // or stretch the image and we keep the normal 1080p request elsewhere.
+        const vidaaLowPower = typeof document !== 'undefined'
+            && document.body.classList.contains('xbridge-embedded')
+        const requestedWidth = vidaaLowPower ? 1280 : 1920
+        const requestedHeight = vidaaLowPower ? 720 : 1080
         const dimensionsConfig = JSON.stringify(this.generateMessage('/streaming/characteristics/dimensionschanged', {
-            'horizontal': 1920,
-            'vertical': 1080,
-            'preferredWidth': 1920,
-            'preferredHeight': 1080,
+            'horizontal': requestedWidth,
+            'vertical': requestedHeight,
+            'preferredWidth': requestedWidth,
+            'preferredHeight': requestedHeight,
             'safeAreaLeft': 0,
             'safeAreaTop': 0,
-            'safeAreaRight': 1920,
-            'safeAreaBottom': 1080,
+            'safeAreaRight': requestedWidth,
+            'safeAreaBottom': requestedHeight,
             'supportsCustomResolution':true,
         }))
         this.send(dimensionsConfig)
