@@ -30,9 +30,17 @@ function startVideoHealth(){
     if(x.type==='inbound-rtp'&&(x.kind==='video'||x.mediaType==='video'))inbound=x;
    });
    if(!inbound)return;
+   const media=player.getVideoElement?.() as (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
+   const compositorFrames=Number(media?.__xbridgePresentedFrames)||0;
+   let qualityFrames=0;
+   try { qualityFrames=Number(media?.getVideoPlaybackQuality?.()?.totalVideoFrames)||0; } catch(_){}
+   // Some VIDAA builds lack requestVideoFrameCallback; use quality count only
+   // when it reports nonzero data. Null means presentation is not measurable.
+   const presented=compositorFrames>0?compositorFrames:qualityFrames>0?qualityFrames:null;
    const sample={
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
+    presented,
     videoWidth:Number(inbound.frameWidth)||0,
     videoHeight:Number(inbound.frameHeight)||0,
     connection:peer.connectionState
@@ -40,10 +48,10 @@ function startVideoHealth(){
    const result=classifyStreamHealth(healthPrevious,sample,6);
    healthPrevious=sample;
    if(result.kind==='active')freezeChecks=0;
-   else if(result.kind==='decode-stall'||result.kind==='network-stall')freezeChecks++;
+   else if(result.kind==='decode-stall'||result.kind==='network-stall'||result.kind==='presentation-stall')freezeChecks++;
    notifyParent({type:'xbridge-video-health',message:result.reason,
     kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
-    decoded:sample.decoded,received:sample.received});
+    decoded:sample.decoded,received:sample.received,presented:sample.presented});
    if(freezeChecks>=2&&Date.now()-lastKeyframeRequest>20000){
     // A keyframe request is a safe recovery attempt; the server may ignore it.
     // Never restart a game or log out automatically over a stalled image.
@@ -293,18 +301,30 @@ if (embedded) {
     status('Pronto para escolher outro jogo. Conta Xbox mantida.');
    })();
   } else if(event.data?.type==='xbridge-recover-video'){
-   // Explicit user recovery, never automatically restart a successful game.
-   try{player?._channels.control.requestKeyframeRequest(true)}catch(_){}
-   for(const media of document.querySelectorAll('video,audio')) {
-    void (media as HTMLMediaElement).play().catch(()=>{});
-   }
-   status('Solicitei um novo quadro-chave do Xbox. Se a imagem continuar parada, teste outro jogo.');
+   // Explicit user recovery, not automatic: rebind the existing video stream
+   // without restarting the Xbox session, then request a fresh keyframe.
+   void (async()=>{
+    try{
+     const video=player?.getVideoElement?.() as HTMLVideoElement|undefined;
+     if(video&&video.srcObject) {
+      const stream=video.srcObject;
+      video.pause();
+      video.srcObject=null;
+      video.srcObject=stream;
+      await video.play().catch(()=>{});
+     }
+     try{player?._channels.control.requestKeyframeRequest(true)}catch(_){}
+     status('Vídeo reconectado localmente; solicitado novo quadro ao Xbox, sem sair da partida.');
+    }catch(_){status('A recuperação de vídeo não foi aceita pelo VIDAA. A sessão Xbox continua aberta.');}
+   })();
   } else if(event.data?.type==='xbridge-resume-media'){
    // A user gesture in the TV settings may unlock media on VIDAA.
    void (async()=>{
     let resumed=false;
-    for(const element of document.querySelectorAll('video,audio')){
-     try{await (element as HTMLMediaElement).play();resumed=true}catch(_){}
+    const mediaElements=[...document.querySelectorAll('video,audio'),player?.getVideoElement?.(),player?.getAudioElement?.()]
+     .filter(Boolean) as HTMLMediaElement[];
+    for(const element of new Set(mediaElements)){
+     try{await element.play();resumed=true}catch(_){}
     }
     status(resumed?'Reprodução solicitada.':'O navegador bloqueou a reprodução. Tente iniciar o vídeo pelo controle da TV.');
    })();
