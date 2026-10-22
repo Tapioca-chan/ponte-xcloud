@@ -47,7 +47,7 @@ const server=http.createServer(async(req,res)=>{
  const u=new URL(req.url||'/', 'http://localhost');
  let actionName='initialization';
  try {
-  if(u.pathname==='/health'){reply(res,200,{ok:true,experimental:true});return;}
+  if(u.pathname==='/health'){reply(res,200,{ok:true,experimental:true,clientBuild:process.env.XBRIDGE_CLIENT_FIX_VERSION||'base'});return;}
   if(u.pathname.startsWith('/api/')){
    if(req.method!=='POST'){reply(res,405,{error:'POST obrigatório'});return;}
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>131072){reply(res,413,{error:'Pedido grande demais'});return;}}
