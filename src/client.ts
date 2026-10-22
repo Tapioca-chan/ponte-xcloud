@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
 import {mountEmbeddedDashboard} from './embedded-dashboard.mjs';
+import {serializeLocalIceCandidates} from './ice-bridge.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
@@ -107,9 +108,9 @@ $('play').onclick=async()=>{
   // Allow the ICE agent time to expose candidate addresses on slower TVs.
   const rtc=player._peerConnection;
   for(let i=0;i<15&&rtc.iceGatheringState!=='complete';i++)await pause(200);
-  const candidates=player.getICECandidates().map((c:any)=>JSON.stringify({
-   candidate:c.candidate,sdpMid:c.sdpMid,sdpMLineIndex:c.sdpMLineIndex,usernameFragment:c.usernameFragment
-  }));
+  // getICECandidates() returns a Promise. Resolve it before serialization:
+  // attempting .map() directly on the Promise caused the Metro Exodus failure.
+  const candidates=await serializeLocalIceCandidates(()=>player.getICECandidates());
   const remote=await api('ice',{candidates});
   const parsed=JSON.parse(remote.exchangeResponse||'[]');
   const remoteCandidates=Array.isArray(parsed)?parsed:Array.isArray(parsed.candidates)?parsed.candidates:parsed.iceCandidates;
