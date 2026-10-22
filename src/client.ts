@@ -397,7 +397,10 @@ function startVideoHealth(){
     visualStatus:'audio-active-video-stalled',visualStillMs:visual?.ageMs||0,
     signalStatus:result.kind});
    if(recurringMetroFreezes || introFreeze)notifyParent({type:'xbridge-freeze-diagnostics',
-    visualStatus:introFreeze?'webrtc-metro-intro':'webrtc-recurrent-freezes',
+    // Do not claim an automatic recovery was requested if the post-rebind
+    // playback protection correctly blocked weak freezeCount-only evidence.
+    visualStatus:!signalFrozen && lastStrongVideoRebindAt>0?'webrtc-post-rebind-protected':
+      introFreeze?'webrtc-metro-intro':'webrtc-recurrent-freezes',
     recentFreezeEvents:freezeEvidence.recentEvents,
     visualStillMs:0,signalStatus:result.kind});
    if(canAutoRecoverStream({
