@@ -54,7 +54,11 @@ export default class MessageChannel extends Channel {
     }
 
     sendConfig(){
-        const systemUis = []
+        // Only Metro Exodus opts in to a system dialog we can actually
+        // render in the TV parent. Do not advertise other unsupported Xbox
+        // system UIs (keyboard, purchases, apps, etc.) and do not touch
+        // successful titles such as Marvel Rivals.
+        const systemUis = (this.getPlayer() as any).__xbridgeShowMessageDialogs === true ? [19] : []
         const systemVersion = [0, 2, 0]
         const uiConfig = JSON.stringify(this.generateMessage('/streaming/systemUi/configuration', {
             'version': systemVersion,
