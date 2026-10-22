@@ -83,8 +83,13 @@ export class VideoFreezeWatchdog {
     const remoteFramesAdvanced=decoded-this.decodedAtLastMovement>=30;
     const presentedFramesAdvanced=presented===null || this.presentedAtLastMovement===null ||
       presented-this.presentedAtLastMovement>=15;
-    const threshold=recentInput?36000:65000;
-    const warmup=recentInput?55000:90000;
+    // On a TV, advertisements and logos may naturally show the same frame.
+    // Require prior visual motion for a quicker response; otherwise keep a
+    // longer grace for black splash/loading screens and static advertisements.
+    // Do NOT infer a freeze just because a screenshot is motionless.
+    const seenMotion=this.visibleChanges>=2;
+    const threshold=recentInput?(seenMotion?22000:30000):65000;
+    const warmup=recentInput?(seenMotion?26000:45000):90000;
     const frozen=this.samples>=6 && age>=threshold && runtime>=warmup &&
       remoteFramesAdvanced && presentedFramesAdvanced && received>0;
     return {status:frozen?'suspected-visual-freeze':'unchanged',
@@ -100,4 +105,22 @@ export function canAutoRecoverStream({now,attempts=0,lastAttemptAt=0,visualFroze
   // Do not flash the video every few seconds on a persistent frozen ad/menu.
   if(attempts>0 && now-lastAttemptAt<90000)return false;
   return true;
+}
+
+/**
+ * Strong fallback when native VIDAA video planes cannot be sampled by Canvas:
+ * audio RTP is still arriving but no NEW video packets/decoded frames arrive.
+ * Call with two samples, roughly >=6 seconds apart; require 3 intervals.
+ */
+export function classifyAudioVideoStall(previous,current){
+ if(!previous||!current)return false;
+ const p=previous,c=current;
+ if(c.connection!=='connected'&&c.connection!=='completed')return false;
+ if(c.videoReadyState<2 || c.videoPaused || !(c.videoWidth>0&&c.videoHeight>0))return false;
+ const audioDelta=Number(c.audioReceived)-Number(p.audioReceived);
+ const videoDelta=Number(c.received)-Number(p.received);
+ const decodeDelta=Number(c.decoded)-Number(p.decoded);
+ return Number.isFinite(audioDelta) && audioDelta>=6 &&
+   Number.isFinite(videoDelta) && videoDelta<=0 &&
+   Number.isFinite(decodeDelta) && decodeDelta<=0;
 }
