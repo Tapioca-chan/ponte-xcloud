@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VideoFreezeWatchdog,differsVisibly,canAutoRecoverStream} from '../src/video-freeze-watchdog.mjs';
+import {VideoFreezeWatchdog,differsVisibly,canAutoRecoverStream,classifyAudioVideoStall} from '../src/video-freeze-watchdog.mjs';
 function image(level=12){const a=new Uint8Array(32*18);for(let i=0;i<a.length;i++)a[i]=i%2?level:level+8;return a;}
 function tick(w,{now,signature=image(),decoded=Math.floor(now/100),presented=Math.floor(now/100),recentInput=true,received=Math.floor(now/20),connection='connected',videoReadyState=4}={}){
  return w.observe({now,signature,decoded,presented,received,recentInput,connection,videoReadyState});
@@ -51,4 +51,25 @@ test('retries are bounded and distinct from a stuck loading splash',()=>{
  assert.equal(canAutoRecoverStream({now:200000,attempts:1,lastAttemptAt:160000,visualFrozen:true,hasVideo:true}),false);
  assert.equal(canAutoRecoverStream({now:200000,attempts:1,lastAttemptAt:100000,visualFrozen:true,hasVideo:true}),true);
  assert.equal(canAutoRecoverStream({now:200000,attempts:3,visualFrozen:true,hasVideo:true}),false);
+});
+
+test('silent video stalls are detected only when audio packets keep arriving',()=>{
+ const before={connection:'connected',videoReadyState:4,videoPaused:false,videoWidth:1280,videoHeight:720,audioReceived:100,received:200,decoded:40};
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118}),true);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,received:210}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,decoded:45}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:102}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,connection:'disconnected'}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,videoReadyState:1}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,videoPaused:true}),false);
+ assert.equal(classifyAudioVideoStall(before,{...before,audioReceived:118,videoWidth:0}),false);
+});
+test('visual watchdog shortens recovery when advert motion preceded a stuck splash',()=>{
+ const w=new VideoFreezeWatchdog();
+ tick(w,{now:1000,signature:image(10)});
+ tick(w,{now:7000,signature:image(15)});
+ tick(w,{now:13000,signature:image(20)});
+ tick(w,{now:19000,signature:image(23)});
+ for(const n of [25000,31000,37000])assert.equal(tick(w,{now:n,signature:image(23)}).frozen,false);
+ assert.equal(tick(w,{now:43000,signature:image(23)}).frozen,true);
 });
