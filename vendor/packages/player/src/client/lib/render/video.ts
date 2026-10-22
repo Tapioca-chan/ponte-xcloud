@@ -35,6 +35,27 @@ export default class VideoComponent {
         const notifyVideoReady = () => {
             if (expanded) return
             expanded = true
+            // VIDAA's Chromium sometimes keeps the video at its intrinsic
+            // decoded frame size despite percentage CSS on an iframe child.
+            // Force the actual video element and its host to the viewport,
+            // not just the React iframe (which was already full-screen).
+            const force = (el:HTMLElement, key:string, value:string) =>
+                el.style.setProperty(key,value,'important')
+            force(element,'position','fixed')
+            force(element,'inset','0')
+            force(element,'width','100vw')
+            force(element,'height','100vh')
+            force(element,'overflow','hidden')
+            force(element,'background','#000')
+            force(videoElement,'display','block')
+            force(videoElement,'position','absolute')
+            force(videoElement,'inset','0')
+            force(videoElement,'width','100%')
+            force(videoElement,'height','100%')
+            force(videoElement,'max-height','none')
+            force(videoElement,'max-width','none')
+            force(videoElement,'object-fit','contain')
+            force(videoElement,'object-position','center center')
             document.body.classList.add('stream-playing')
             try {
                 if (window.parent !== window && location.origin === window.parent.location.origin) {
@@ -44,6 +65,21 @@ export default class VideoComponent {
         }
         videoElement.addEventListener('loadeddata', notifyVideoReady, {once:true})
         videoElement.addEventListener('playing', notifyVideoReady, {once:true})
+        videoElement.addEventListener('resize', () => {
+            // Tell the parent the decoded stream dimensions, without exposing
+            // private session information.
+            try {
+                if (window.parent !== window && window.parent.location.origin === location.origin) {
+                    window.parent.postMessage({
+                        type:'xbridge-video-size',
+                        width:videoElement.videoWidth,
+                        height:videoElement.videoHeight,
+                        viewportWidth:window.innerWidth,
+                        viewportHeight:window.innerHeight
+                    }, location.origin)
+                }
+            } catch (_) {}
+        })
         element.appendChild(this._element)
         // VIDAA may block autoplay despite muted inline video; the user can
         // explicitly activate media in settings if the promise is rejected.
