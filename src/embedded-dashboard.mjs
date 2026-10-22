@@ -200,10 +200,12 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const data=await api('login');
       if(!data||typeof data.user_code!=='string')throw Error('A Microsoft não retornou um código.');
       authUri=allowOfficialLink(data.verification_uri);
+      const directQr=typeof data.verification_uri_complete==='string' && data.verification_uri_complete
+        ? allowOfficialLink(data.verification_uri_complete) : authUri;
       $('code').textContent=data.user_code;
       const link=$('xb-ms-link');link.href=authUri;link.textContent=new URL(authUri).hostname+new URL(authUri).pathname+' ↗';
       show('xb-authorization',true);
-      try{await QRCode.toCanvas($('xb-ms-qr'),authUri,{width:176,margin:1,color:{dark:'#07130e',light:'#ffffff'}})}
+      try{await QRCode.toCanvas($('xb-ms-qr'),directQr,{width:176,margin:1,color:{dark:'#07130e',light:'#ffffff'}})}
       catch(_){$('xb-ms-qr').hidden=true}
       canAsk=true;authDeadline=Date.now()+Math.max(120,Number(data.expires_in)||900)*1000;
       const delay=Math.max(9000,Math.min(30000,Number(data.interval||8)*1000+1500));
