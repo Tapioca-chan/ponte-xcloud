@@ -260,6 +260,7 @@ function startVideoHealth(){
     title:launchedStreamingTitle,
     sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
     aPresses:inputDebug.aPresses,recentFreezeEvents:freezeEvidence.recentEvents,
+    totalFreezeCount:sample.freezeCount,
     now,lastAttemptAt:metroLastRecoveryAt,attempts:metroRecoveryAttempts,
     overlayOpen:gameOverlayOpen,videoReadyState:sample.videoReadyState,
     hasVideo:Boolean(media?.srcObject),connection:effectiveState
@@ -278,7 +279,8 @@ function startVideoHealth(){
     blocker:describeRecoveryBlockers({
      title:launchedStreamingTitle,
      sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
-     freezeEvents:freezeEvidence.recentEvents,aPresses:inputDebug.aPresses,
+     freezeEvents:freezeEvidence.recentEvents,totalFreezeCount:sample.freezeCount,
+     aPresses:inputDebug.aPresses,
      attempts:metroRecoveryAttempts,overlayOpen:gameOverlayOpen,
      hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
      connection:effectiveState,cooldownMs
