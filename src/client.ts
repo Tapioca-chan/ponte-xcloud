@@ -169,6 +169,8 @@ $('play').onclick=async()=>{
   if(!$('games').value)throw Error('Selecione um jogo da biblioteca antes de jogar.');
   phase='start';announce('Solicitando o jogo aos servidores Xbox…');
   await api('start',{id:$('games').value});
+  // Permit recovery menu while Xbox audio works but Metro has no video yet.
+  notifyParent({type:'xbridge-game-session',active:true});
   phase='state';announce('Aguardando o Xbox preparar o jogo…');
   let ready=false,connectedToXbox=false,lastState='';
   for(let n=0;n<90;n++){
@@ -190,6 +192,7 @@ $('play').onclick=async()=>{
   if(!ready)throw Error('O Xbox não concluiu o preparo do jogo.');
   await connectExistingXboxSession(announce);
  }catch(e:any){
+  notifyParent({type:'xbridge-game-session',active:false});
   const message=String(e?.message||'Erro desconhecido').slice(0,180);
   const detail='Não foi possível iniciar o jogo ['+phase+']: '+message;
   announce(detail);
@@ -427,6 +430,7 @@ if (embedded) {
   } else if(event.data?.type==='xbridge-release'){
    frame=sanitize({});lastFrame=0;inputEdges.release();$('remote').textContent='Aguardando comandos do celular';
   } else if(event.data?.type==='xbridge-game-menu') {
+   notifyParent({type:'xbridge-game-session',active:false});
    // Return to catalog WITHOUT losing the Xbox account cookie.
    // Await reset before enabling another title; avoids concurrent Xbox sessions.
    void (async()=>{
