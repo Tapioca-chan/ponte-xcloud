@@ -229,6 +229,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
     return;
    }
    controlRegistered=true;
+   const currentPlayer=player;
    const androidHandler={
     getGamepadState:()=>Date.now()-lastFrame<650?frame:sanitize({}),
     handleVibration:()=>{},detach:()=>{}
@@ -241,7 +242,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
     // One later announcement helps if the title attaches its input listener
     // after the stream handshake. Never disconnect or inject button presses.
     setTimeout(()=>{
-      if(player && !player._isDestoyed && channel.getGamepadHandlers()?.[0]===androidHandler
+      if(player===currentPlayer && !currentPlayer._isDestoyed && channel.getGamepadHandlers()?.[0]===androidHandler
         && (channel as any)._dataChannel?.readyState==='open') {
         channel.reannounceStableGamepad();
       }
@@ -253,8 +254,13 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
    notifyParent({type:'xbridge-control-ready'});
   };
   channel.sendAuthorization=registerGamepad;
-  player._peerConnection.addEventListener('connectionstatechange',()=>{
-   const state=player._peerConnection.connectionState;
+  // Ignore late events from old media connections during same-session
+  // reconnection. They must not hide a newly displayed Xbox stream.
+  const activePlayer=player;
+  const pc=activePlayer._peerConnection;
+  pc.addEventListener('connectionstatechange',()=>{
+   if(player!==activePlayer)return;
+   const state=pc.connectionState;
    announce('Conexão de vídeo: '+state);
    if(state==='failed'||state==='disconnected'||state==='closed'){
     document.body.classList.remove('stream-playing');
