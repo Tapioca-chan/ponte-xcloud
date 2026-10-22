@@ -110,6 +110,35 @@ export default class VideoComponent {
             } catch (_) {}
         })
         element.appendChild(this._element)
+        // CSS pixels and the native video decoder can use different viewports
+        // on VIDAA. Report geometry after the React parent expands the section,
+        // to distinguish a small DOM box from an unscaled native video plane.
+        const reportGeometry = () => {
+            try {
+                const rootWindow = topLevel ? window.parent : window
+                const bounds = videoElement.getBoundingClientRect()
+                const hostBounds = element.getBoundingClientRect()
+                if (window.parent !== window && window.parent.location.origin === location.origin) {
+                    window.parent.postMessage({
+                        type:'xbridge-video-geometry',
+                        topLevel,
+                        viewportW:Math.round(rootWindow.innerWidth),
+                        viewportH:Math.round(rootWindow.innerHeight),
+                        screenW:Math.round(rootWindow.screen?.width || 0),
+                        screenH:Math.round(rootWindow.screen?.height || 0),
+                        frameW:Math.round(window.innerWidth),
+                        frameH:Math.round(window.innerHeight),
+                        videoW:Math.round(bounds.width),
+                        videoH:Math.round(bounds.height),
+                        hostW:Math.round(hostBounds.width),
+                        hostH:Math.round(hostBounds.height)
+                    }, location.origin)
+                }
+            } catch (_) {}
+        }
+        videoElement.addEventListener('loadeddata', () => {
+            setTimeout(reportGeometry, 650)
+        }, {once:true})
         if(topLevel) {
             try {
                 window.parent.postMessage({type:'xbridge-video-attached',topLevel:true},location.origin)
