@@ -9,6 +9,7 @@ import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVi
 import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 import {MediaTransitionWatch} from './video-transition-health.mjs';
 import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
+import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -24,6 +25,7 @@ let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let mediaTransitions=new MediaTransitionWatch();
+let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
 const trackedMediaEvents=['waiting','stalled','playing','pause','emptied','loadeddata','loadstart','resize','error','suspend'];
 function trackVideoTransitions(media:HTMLVideoElement|undefined){
@@ -71,6 +73,7 @@ function stopVideoHealth(){
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
+ webRtcFreezeWatch.reset();
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -91,6 +94,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   return false;
  }
  videoRecoveryInFlight=true;
+ webRtcFreezeWatch.acknowledgeRecovery();
  mediaTransitions.noteRepair(reason,Date.now());
  // Browser 'emptied'/'loadstart' events after this point are CAUSED by the
  // XBridge rebind; diagnostics must not blame the native compositor.
@@ -221,6 +225,14 @@ function startVideoHealth(){
    // visual freeze unobservable. Keep a separate, clearly labelled preventive
    // compatibility refresh rather than falsely claiming freeze detection.
    if(sample.videoReadyState>=2 && sample.decoded>0 && !nativePlaneFirstVideoAt)nativePlaneFirstVideoAt=now;
+   const freezeEvidence=webRtcFreezeWatch.observe({
+    now,freezeCount:sample.freezeCount,
+    decodedDelta:videoPipeline.decodedDelta,
+    receivedDelta:videoPipeline.receivedDelta,
+    firstVideoAt:nativePlaneFirstVideoAt
+   });
+   const recurringMetroFreezes=freezeEvidence.suspected &&
+    needsXboxDialogCompatibility(launchedStreamingTitle) && !gameOverlayOpen;
    const nativeBlind=(visual?.status==='visual-unavailable' && sample.presented===null);
    nativeUnreadableSamples=nativeBlind?nativeUnreadableSamples+1:0;
    notifyParent({type:'xbridge-freeze-diagnostics',
@@ -232,11 +244,13 @@ function startVideoHealth(){
      Math.max(0,Math.ceil(((metroRecoveryAttempts>0?
       Math.max(nativePlaneFirstVideoAt+120000,metroLastRecoveryAt+240000):
       nativePlaneFirstVideoAt+120000)-now)/1000)):null,
-    nativeBlindAttempts:metroRecoveryAttempts
+    nativeBlindAttempts:metroRecoveryAttempts,
+    recurrentWebRtcFreezes:freezeEvidence.recentEvents,
+    recurrentEvidenceStatus:freezeEvidence.reason
    });
    // Run on evidence only: no timed repair during Xbox's free ad.
    const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
-     || audioVideoStallChecks>=3;
+     || audioVideoStallChecks>=3 || recurringMetroFreezes;
    const visualFrozen=visual?.frozen===true;
    // VIDAA may leave peer.connectionState on "connecting" even with RTP
    // flowing. Treat a video-ready stream as connected unless explicitly failed.
@@ -247,14 +261,19 @@ function startVideoHealth(){
    if(audioVideoStallChecks>=3)notifyParent({type:'xbridge-freeze-diagnostics',
     visualStatus:'audio-active-video-stalled',visualStillMs:visual?.ageMs||0,
     signalStatus:result.kind});
+   if(recurringMetroFreezes)notifyParent({type:'xbridge-freeze-diagnostics',
+    visualStatus:'webrtc-recurrent-freezes',
+    recentFreezeEvents:freezeEvidence.recentEvents,
+    visualStillMs:0,signalStatus:result.kind});
    if(canAutoRecoverStream({
     now,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt,
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
     connection:effectiveState
-   })&&!videoRecoveryInFlight){
+   })&&!videoRecoveryInFlight && !gameOverlayOpen){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     const kind=audioVideoStallChecks>=3?'audio-active-video-stalled':
+      recurringMetroFreezes?'webrtc-freeze-burst':
       visualFrozen?'visual-still':result.kind;
     status('Possível congelamento detectado ('+kind+'). Recuperando imagem…');
     const recovered=await recoverXboxVideoLocally('automatic',kind);
