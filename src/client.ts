@@ -14,6 +14,28 @@ const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+// Track each link of Android -> WebRTC gamepad delivery without recording button
+// sequences, Xbox tokens, or session identifiers.
+const inputDebug={androidFrames:0,aPresses:0,gamepadPacketsSent:0,lastAndroidAt:0,lastAAt:0};
+let previousA=false, sentAtPreviousCheck=0;
+function reportInputHealth(){
+ const control=(player?._channels?.control as any)?._dataChannel as RTCDataChannel|undefined;
+ const input=(player?._channels?.input as any)?._dataChannel as RTCDataChannel|undefined;
+ return {
+  androidFrames:inputDebug.androidFrames,
+  aPresses:inputDebug.aPresses,
+  aRecently:inputDebug.lastAAt>0&&Date.now()-inputDebug.lastAAt<20000,
+  gamepadPacketsSent:inputDebug.gamepadPacketsSent,
+  controlState:control?.readyState||'ausente',
+  inputState:input?.readyState||'ausente',
+  gamepadRegistered:Boolean(player?._channels?.control?.getGamepadHandlers?.()?.[0]),
+  latestInputMs:inputDebug.lastAndroidAt?Date.now()-inputDebug.lastAndroidAt:null
+ };
+}
+function clearInputHealth(){
+ inputDebug.androidFrames=0;inputDebug.aPresses=0;inputDebug.gamepadPacketsSent=0;
+ inputDebug.lastAndroidAt=0;inputDebug.lastAAt=0;previousA=false;sentAtPreviousCheck=0;
+}
 function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;
@@ -47,11 +69,16 @@ function startVideoHealth(){
    };
    const result=classifyStreamHealth(healthPrevious,sample,6);
    healthPrevious=sample;
+   const controller=reportInputHealth();
+   const sentNow=controller.gamepadPacketsSent;
+   const inputPacketsInWindow=sentNow-sentAtPreviousCheck;
+   sentAtPreviousCheck=sentNow;
    if(result.kind==='active')freezeChecks=0;
    else if(result.kind==='decode-stall'||result.kind==='network-stall'||result.kind==='presentation-stall')freezeChecks++;
    notifyParent({type:'xbridge-video-health',message:result.reason,
     kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
-    decoded:sample.decoded,received:sample.received,presented:sample.presented});
+    decoded:sample.decoded,received:sample.received,presented:sample.presented,
+    input:{...controller,packetsInWindow:inputPacketsInWindow}});
    if(freezeChecks>=2&&Date.now()-lastKeyframeRequest>20000){
     // A keyframe request is a safe recovery attempt; the server may ignore it.
     // Never restart a game or log out automatically over a stalled image.
@@ -133,6 +160,15 @@ $('play').onclick=async()=>{
   if(!ready)throw Error('O Xbox não concluiu o preparo do jogo.');
   phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
   player=new Player('playerContainer');player.init();
+  clearInputHealth();
+  // Count packets actually sent to the Xbox input channel, independently of
+  // arrival from Android. Preserve the original send semantics.
+  const inputChannel=player._channels.input as any;
+  const originalInputSend=inputChannel.send.bind(inputChannel);
+  inputChannel.send=(payload:any)=>{
+   if(inputChannel._dataChannel?.readyState==='open')inputDebug.gamepadPacketsSent++;
+   return originalInputSend(payload);
+  };
   const channel=player._channels.control;
   const original=channel.sendAuthorization.bind(channel);
   let controlRegistered=false;
@@ -278,6 +314,11 @@ if (embedded) {
   if(!acceptsParent(event,window.parent))return;
   if(event.data?.type==='xbridge-input'){
    frame=compactFrame(event.data.packet);lastFrame=Date.now();
+   inputDebug.androidFrames++;
+   inputDebug.lastAndroidAt=lastFrame;
+   const currentA=Number(frame.A)>.55;
+   if(currentA&&!previousA){inputDebug.aPresses++;inputDebug.lastAAt=lastFrame;}
+   previousA=currentA;
    // In catalog mode the Android D-pad, left stick and A/B/Menu operate UI.
    // In play mode every original frame remains dedicated to Xbox input.
    if(!document.body.classList.contains('stream-playing'))handleConsoleController(inputEdges.sample(frame));
