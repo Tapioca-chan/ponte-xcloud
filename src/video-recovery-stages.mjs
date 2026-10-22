@@ -3,11 +3,16 @@
 // the TV compositor is drawing them.
 export function selectVideoRecoveryMode({
   manual=false, now, lastSoftAt=0, lastSoftFreezeCount=null,
-  freezeCount=null, signalStrong=false, visualFrozen=false
+  freezeCount=null, signalStrong=false, visualFrozen=false, compatibilityEscalation=false
 }={}){
   if(manual)return 'rebind';
   // First auto attempt is always lightweight, without destroying srcObject.
   if(!Number.isFinite(lastSoftAt)||lastSoftAt<=0)return 'soft';
+  // VIDAA has no readable native video plane. A bounded Metro-only startup
+  // controller may choose ONE strong retry after 25 seconds, because a
+  // successful play() promise does not prove that the picture was shown.
+  if(compatibilityEscalation===true && Number.isFinite(now) &&
+     now-lastSoftAt>=25000)return 'rebind';
   // A second freeze counted AFTER the lightweight attempt is fresh evidence
   // the decoder/display path still has trouble; a passive still scene is not.
   const freezeAdvanced=Number.isFinite(lastSoftFreezeCount) &&
