@@ -24,5 +24,21 @@ test('diagnostics explain overlay, missing title and cooldown without private da
  assert.match(describeRecoveryBlockers({...base,freezeEvents:2,overlayOpen:true}),/Painel aberto/);
  assert.match(describeRecoveryBlockers({...base,freezeEvents:0,connection:'failed'}),/indisponível/);
  assert.match(describeRecoveryBlockers({...base,freezeEvents:0,cooldownMs:40000}),/40 segundos/);
- assert.match(describeRecoveryBlockers({...base,freezeEvents:0}),/Sem novos/);
+ assert.match(describeRecoveryBlockers({...base,freezeEvents:0}),/Nenhum congelamento/);
+});
+
+test('VIDAA screenshot: one early freeze, A=3 at 71s, then browser panel opens by 130s',()=>{
+ const early={...base,sessionAgeMs:71000,recentFreezeEvents:0,totalFreezeCount:1,aPresses:3};
+ assert.equal(shouldRecoverMetroIntro(early),false,'protect free-tier ad until 90s');
+ assert.match(describeRecoveryBlockers({...early,freezeEvents:0}),/90 s/);
+ const ready={...early,sessionAgeMs:130000};
+ assert.equal(shouldRecoverMetroIntro(ready),true,'retain early WebRTC freeze with repeated A');
+ assert.match(describeRecoveryBlockers({...ready,freezeEvents:0}),/recuperação autorizada/);
+ assert.equal(shouldRecoverMetroIntro({...ready,overlayOpen:true}),false);
+ assert.match(describeRecoveryBlockers({...ready,freezeEvents:0,overlayOpen:true}),/Painel aberto/);
+ assert.equal(shouldRecoverMetroIntro({...ready,overlayOpen:false,attempts:1}),false,'never blind-repeat intro fallback');
+});
+test('no browser-observed freezes still prevents an automatic Metro rebind',()=>{
+ assert.equal(shouldRecoverMetroIntro({...base,recentFreezeEvents:0,totalFreezeCount:0}),false);
+ assert.equal(shouldRecoverMetroIntro({...base,recentFreezeEvents:0,totalFreezeCount:1,title:'Marvel Rivals'}),false);
 });
