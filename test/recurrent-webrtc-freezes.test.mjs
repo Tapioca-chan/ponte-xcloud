@@ -22,7 +22,9 @@ test('WebRTC freeze counter first poll establishes baseline and ad grace prevent
  assert.equal(poll(w,20000,5).suspected,false);
  assert.equal(poll(w,30000,6).suspected,false);
  assert.equal(poll(w,40000,7).suspected,false);
- assert.equal(poll(w,70000,7).suspected,true,'evidence can become eligible after initial stream grace');
+ assert.equal(poll(w,70000,7).suspected,false,'pre-roll evidence is never reused');
+ assert.equal(poll(w,76000,8).suspected,false);
+ assert.equal(poll(w,82000,9).suspected,true,'only repeated post-grace freezes count');
 });
 test('ad transition, absent or resetting metrics do not count as confirmed repeated freezes',()=>{
  const w=new RecurrentWebRtcFreezeWatch();
