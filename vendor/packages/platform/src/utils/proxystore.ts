@@ -6,8 +6,20 @@ export default class ProxyStore extends TokenStore {
     constructor(token?: IUserToken) {
         super()
         
-        if(token !== undefined)
-            this._userToken = new ((UserToken as any).default || UserToken)(token)
+        if(token !== undefined) {
+            // The raw MSAL device-code JSON has expires_in but no expires_on.
+            // Without a deadline, xal-node assumes expired and refreshes again
+            // while fetching xCloud streaming tokens, rotating refresh_token
+            // behind the caller's back. Keep the expiry after every restore.
+            const validity=Number(token.expires_in)
+            const expiresOn=typeof token.expires_on==='string' && !Number.isNaN(Date.parse(token.expires_on))
+                ? token.expires_on
+                : Number.isFinite(validity) && validity>0
+                    ? new Date(Date.now()+validity*1000).toISOString()
+                    : undefined
+            const data={...token,...(expiresOn?{expires_on:expiresOn}:{})}
+            this._userToken = new ((UserToken as any).default || UserToken)(data)
+        }
     }
  
     load() {
