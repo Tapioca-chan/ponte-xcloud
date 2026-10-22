@@ -1,4 +1,5 @@
 import type { xStreamToken, xCloudStreamConfig, SDPResponse, startStreamResponse, StatusResponse, ErrorResponse } from '../types/index';
+import {xboxAdvertisedDisplay} from '../../../../../src/stream-device-display.mjs';
 export type { xStreamToken, startStreamResponse, SDPResponse, xCloudStreamConfig, StatusResponse, ErrorResponse };
 
 export const ping = () => 'pong';
@@ -157,10 +158,7 @@ const getDeviceInfo = (xCloudStreamConfig:xCloudStreamConfig) => {
                 'platform': 'desktop',
             },
             'displayInfo': {
-                'dimensions': {
-                    'widthInPixels': 1920,
-                    'heightInPixels': 1080,
-                },
+                'dimensions': xboxAdvertisedDisplay(xCloudStreamConfig.resolution),
                 'pixelDensity': {
                     'dpiX': 2,
                     'dpiY': 2,
