@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import {mountEmbeddedDashboard} from './embedded-dashboard.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
@@ -106,13 +107,10 @@ document.addEventListener('keydown',e=>{if(!['ArrowUp','ArrowDown','ArrowLeft','
 if (embedded) {
  document.body.classList.add('xbridge-embedded');
  $('setup').hidden=true; $('tv').hidden=false;
- const handlers:any={}; ['login','verify','titles','play','sound','fullscreen','stop'].forEach(id=>handlers[id]=$(id).onclick);
- $('tv').innerHTML=`<div class="cloud-heading"><h1>Xbox Cloud Gaming</h1><p>Seu controle já está conectado pelo xBridge. Entre na Microsoft para carregar seus jogos.</p></div>
- <div class="cloud-steps"><section><h2>01 · Sua conta Xbox</h2><button id="embed-login" disabled>Entrar com a Microsoft</button><p id="embed-code"></p><button id="embed-verify" hidden>Já autorizei na Microsoft</button></section>
- <section><h2>02 · Seus jogos</h2><button id="embed-titles" disabled>Carregar catálogo</button><label>Escolha um jogo<select id="embed-games"></select></label><button id="embed-play" disabled>Jogar agora</button></section></div>
- <div class="cloud-actions"><button id="embed-sound">Ativar áudio / vídeo</button><button id="embed-fullscreen">Tela cheia</button><button id="embed-stop">Encerrar sessão</button></div>`;
- ['login','verify','titles','play','sound','fullscreen','stop','code','games'].forEach(id=>{$('embed-'+id).id=id; if(handlers[id]) $(id).onclick=handlers[id];});
- $('fullscreen').onclick=()=>notifyParent({type:'xbridge-fullscreen'});
+ const handlers:any={};
+ ['play','sound','fullscreen','stop'].forEach(id=>handlers[id]=$(id).onclick);
+ const dashboard=mountEmbeddedDashboard({api,QRCode,status,notifyParent,handlers});
+
  window.addEventListener('message',event=>{
   if(!acceptsParent(event,window.parent))return;
   if(event.data?.type==='xbridge-input'){
@@ -128,7 +126,7 @@ if (embedded) {
  setInterval(()=>{if(lastFrame && Date.now()-lastFrame>400){frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';}},200);
  const prepare=run(async()=>{
   status('Preparando sessão Xbox…');setBackend(location.origin+(location.pathname.startsWith('/player')?'/player':''));room=await api('create');
-  $('login').disabled=false;status('Pronto. Entre com sua conta Microsoft.');notifyParent({type:'xbridge-ready'});
+  dashboard.ready();status('Pronto. Autorize sua conta Microsoft pelo QR Code.');notifyParent({type:'xbridge-ready'});
  });
  void prepare();
 }
