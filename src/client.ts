@@ -49,7 +49,13 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
  if(videoRecoveryInFlight)return false;
  const activePlayer=player;
  const media=activePlayer?.getVideoElement?.() as HTMLVideoElement|undefined;
- if(!media?.srcObject)return false;
+ if(!media?.srcObject){
+  if(reason==='manual'){
+   try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
+   status('Solicitado novo quadro ao Xbox; ainda não há vídeo local para reconectar.');
+  }
+  return false;
+ }
  videoRecoveryInFlight=true;
  try{
   const stream=media.srcObject;
@@ -63,7 +69,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   freezeChecks=0;
   if(reason==='automatic'){
    notifyParent({type:'xbridge-metro-recovery',step:'reattach',kind});
-   status('Metro Exodus: imagem recuperada automaticamente; partida mantida.');
+   status('Metro Exodus: tentativa automática de restaurar a imagem; partida mantida.');
   }else{
    status('Vídeo reconectado localmente; solicitado novo quadro ao Xbox, sem sair da partida.');
   }
@@ -127,11 +133,11 @@ function startVideoHealth(){
     paused:sample.videoPaused,readyState:sample.videoReadyState,
     input:{...controller,packetsInWindow:inputPacketsInWindow}});
    if(freezeChecks>=2&&Date.now()-lastKeyframeRequest>20000){
-    // A keyframe request is a safe recovery attempt; the server may ignore it.
-    // Never restart a game or log out automatically over a stalled image.
-    player._channels.control.requestKeyframeRequest(true);
-    lastKeyframeRequest=Date.now();
-    status(result.reason+'. Solicitado novo quadro ao Xbox.');
+    // A broken control channel must not prevent a local video recovery.
+    try{
+     player._channels?.control?.requestKeyframeRequest(true);
+     lastKeyframeRequest=Date.now();
+    }catch(_){}
    }
    if(shouldAttemptMetroRecovery({
      title:launchedStreamingTitle,
