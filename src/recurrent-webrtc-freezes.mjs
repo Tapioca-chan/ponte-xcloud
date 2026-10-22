@@ -22,14 +22,15 @@ export class RecurrentWebRtcFreezeWatch {
   }
   const increment=count-this.previousCount;
   this.previousCount=count;
+  const warmed=Number.isFinite(firstVideoAt) && firstVideoAt>0 && now-firstVideoAt>=60000;
   this.events=this.events.filter(at=>now-at>=0 && now-at<=105000);
-  // Require separate sample intervals: a burst of two counted by the browser
-  // in one poll could be a legitimate media/advertisement transition.
-  if(increment>0 && Number(decodedDelta)>0 && Number(receivedDelta)>0){
+  if(!warmed)this.events=[];
+  // Require two separate post-grace sample intervals. A burst of two in a
+  // single poll could be a normal advert or Xbox media transition.
+  if(warmed && increment>0 && Number(decodedDelta)>0 && Number(receivedDelta)>0){
    this.events.push(now);
   }
   const recentEvents=this.events.length;
-  const warmed=Number.isFinite(firstVideoAt) && firstVideoAt>0 && now-firstVideoAt>=60000;
   return {suspected:warmed && recentEvents>=2,
    recentEvents,reason:warmed?'web-rtc-repeated-freezes':'startup-grace'};
  }
