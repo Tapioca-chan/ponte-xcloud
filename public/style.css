@@ -175,3 +175,14 @@ body.xbridge-embedded main{height:100vh;min-height:100vh;overflow-y:auto;overflo
 @media(max-width:1050px){.xb-console-nav button{padding:10px!important;font-size:12px!important}.xb-brand strong{font-size:17px}.xb-games-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:750px){.xb-app-top{padding:12px 16px;flex-wrap:wrap;gap:9px}.xb-console-nav{order:3;width:100%;justify-content:center}.xb-library-hero{height:360px}.xb-library-hero-content{padding:33px 20px;width:90%}.xb-library-hero h1{font-size:36px}.xb-games-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;padding:0 17px 17px}.xb-library-heading{padding:23px 17px 12px}.xb-library-filters,.xb-library-notice,.xb-results-count{padding-left:17px;padding-right:17px}}
 @media(max-width:500px){.xb-library-hero{height:370px}.xb-library-hero-art{width:80%;opacity:.38}.xb-library-hero-content{width:100%}.xb-library-hero h1{font-size:32px}.xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* Cursorless game rendering inside the independent player document.
+   The decoded video may be hoisted to the xBridge parent DOM; cover both
+   documents without changing controller or WebRTC behavior. */
+body.xbridge-embedded.stream-playing,
+body.xbridge-embedded.stream-playing *,
+body.xbridge-embedded.stream-playing video,
+body.xbridge-embedded.stream-playing #playerContainer {
+  cursor: none !important;
+}
