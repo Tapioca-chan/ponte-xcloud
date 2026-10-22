@@ -58,6 +58,29 @@ export default class ControlChannel extends Channel {
         // }
     }
 
+    // xBridge Metro Exodus boot compatibility: announce one stable
+    // controller without the original "added -> removed -> added" sequence.
+    // Other games continue to use sendAuthorization() unchanged.
+    authorizeWithStableGamepad(handler:Gamepad|MouseKeyboard|Touch) {
+        this.send(JSON.stringify({
+            message: 'authorizationRequest',
+            accessKey: '4BDB3609-C1F1-4195-9B37-FEFF45DA8B8E',
+        }))
+        this.sendGamepadState(0, true, handler)
+    }
+
+    // Reannounce the same device without detaching its input handler.
+    // Use only when the user requests it during a Metro Exodus boot stall.
+    reannounceStableGamepad() {
+        if (!this._gamepadHandlers[0]) return false
+        this.send(JSON.stringify({
+            message: 'gamepadChanged',
+            gamepadIndex: 0,
+            wasAdded: true,
+        }))
+        return true
+    }
+
     sendGamepadState(gamepadIndex, wasAdded = true, handler:undefined|Gamepad|MouseKeyboard|Touch = undefined) {
        
         if(wasAdded === true){
