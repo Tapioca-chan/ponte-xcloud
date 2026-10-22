@@ -5,7 +5,7 @@ import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
-import {shouldAttemptMetroRecovery} from './metro-recovery.mjs';
+import {shouldAttemptMetroRecovery,shouldNudgeMetroBoot} from './metro-recovery.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -15,7 +15,8 @@ const $=(id:string)=>document.getElementById(id) as any;
 const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-player-status',message:s});};
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
-let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+let videoHealthTimer:any=null,metroBootTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+let metroVideoReadyAt=0,metroBootNudged=false,lastMeaningfulGamepadAt=0;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 // Track each link of Android -> WebRTC gamepad delivery without recording button
 // sequences, Xbox tokens, or session identifiers.
@@ -41,7 +42,14 @@ function clearInputHealth(){
 }
 function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
- videoHealthTimer=null;healthPrevious=null;freezeChecks=0;
+ if(metroBootTimer)clearInterval(metroBootTimer);
+ videoHealthTimer=null;metroBootTimer=null;healthPrevious=null;freezeChecks=0;
+ metroVideoReadyAt=0;
+}
+function trackMeaningfulGamepadInput(state:any){
+ // Keep only a timestamp; never store the button sequence.
+ if(Object.entries(state||{}).some(([key,value])=>key!=='GamepadIndex'
+   && typeof value==='number' && Math.abs(value)>0.27))lastMeaningfulGamepadAt=Date.now();
 }
 async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown'):Promise<boolean>{
  // Same operation proven useful by the manual Recover Image button. Do not
@@ -81,6 +89,41 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
 }
 function startVideoHealth(){
  stopVideoHealth();
+ // VIDAA can show one image while video frames keep arriving. WebRTC stats
+ // then classify the stream as active, so ordinary stall checks cannot help.
+ // Do one local, controller-idle Metro boot repair; never repeat mid-game.
+ metroBootNudged=false;
+ lastMeaningfulGamepadAt=Date.now();
+ if(/\bmetro\s+exodus\b/i.test(launchedStreamingTitle)){
+  metroBootTimer=setInterval(async()=>{
+   const activePlayer=player;
+   const video=activePlayer?.getVideoElement?.() as HTMLVideoElement|undefined;
+   if(!activePlayer || !video?.srcObject)return;
+   const now=Date.now();
+   if(!metroVideoReadyAt)metroVideoReadyAt=now;
+   const age=now-metroVideoReadyAt;
+   if(age>60000){
+    if(metroBootTimer)clearInterval(metroBootTimer);
+    metroBootTimer=null;
+    return;
+   }
+   if(!shouldNudgeMetroBoot({
+    title:launchedStreamingTitle,
+    videoAgeMs:age,
+    lastInputAgoMs:now-lastMeaningfulGamepadAt,
+    alreadyNudged:metroBootNudged || metroRecoveryAttempts>0,
+    hasVideo:true,
+    connection:activePlayer._peerConnection?.connectionState,
+    recoveryBusy:videoRecoveryInFlight
+   }))return;
+   metroBootNudged=true;
+   const recovered=await recoverXboxVideoLocally('automatic','boot-nudge');
+   if(recovered){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+   }
+  },2000);
+ }
  videoHealthTimer=setInterval(async()=>{
   if(videoHealthBusy || !player?._peerConnection)return;
   videoHealthBusy=true;
@@ -154,7 +197,8 @@ function startVideoHealth(){
     // A local media-only repair is safe to try a few times during an ongoing
     // session; space attempts out so the TV is not repeatedly disturbed.
     const recovered=await recoverXboxVideoLocally('automatic',result.kind);
-    if(!recovered)metroRecoveryAttempts--;
+    if(recovered)metroBootNudged=true;
+    else metroRecoveryAttempts--;
    }
   }catch(_){
    notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
@@ -458,6 +502,7 @@ if (embedded) {
   if(!acceptsParent(event,window.parent))return;
   if(event.data?.type==='xbridge-input'){
    frame=compactFrame(event.data.packet);lastFrame=Date.now();
+   if(started)trackMeaningfulGamepadInput(frame);
    inputDebug.androidFrames++;
    inputDebug.lastAndroidAt=lastFrame;
    const currentA=Number(frame.A)>.55;
@@ -501,6 +546,8 @@ if (embedded) {
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
   } else if(event.data?.type==='xbridge-recover-video'){
+   // A manual recovery means the user already fixed this boot stall.
+   metroBootNudged=true;
    // The manual action remains available even if automated diagnostics cannot
    // measure the video frame compositor on this version of VIDAA.
    void recoverXboxVideoLocally('manual');
