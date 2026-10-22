@@ -11,6 +11,7 @@ import {MediaTransitionWatch} from './video-transition-health.mjs';
 import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
+import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -21,6 +22,7 @@ const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
+let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
 let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
@@ -72,6 +74,7 @@ function clearInputHealth(){
 function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
+ lastSoftRecoveryAt=0;lastSoftFreezeCount=null;currentVideoFreezeCount=null;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;
@@ -84,8 +87,10 @@ function trackMeaningfulGamepadInput(state:any){
    && typeof value==='number' && Math.abs(value)>0.27))lastMeaningfulGamepadAt=Date.now();
 }
 async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown'):Promise<boolean>{
- // Same operation proven useful by the manual Recover Image button. Do not
- // renegotiate WebRTC, quit the game or change any controller inputs.
+ // The WebRTC stream stays connected. For automatic repairs prefer pause/play
+ // + a lightweight parent-surface repaint. Escalate to srcObject rebind only
+ // after subsequent corroborating browser freeze evidence. Manual recovery
+ // deliberately retains the stronger method proven on this Toshiba.
  if(videoRecoveryInFlight)return false;
  const activePlayer=player;
  const media=activePlayer?.getVideoElement?.() as HTMLVideoElement|undefined;
@@ -96,43 +101,76 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   }
   return false;
  }
+ const stage=selectVideoRecoveryMode({
+  manual:reason==='manual',now:Date.now(),
+  lastSoftAt:lastSoftRecoveryAt,lastSoftFreezeCount,
+  freezeCount:currentVideoFreezeCount,
+  signalStrong:kind==='decode-stall'||kind==='presentation-stall'||kind==='audio-active-video-stalled',
+  visualFrozen:kind==='visual-still'
+ });
  videoRecoveryInFlight=true;
  webRtcFreezeWatch.acknowledgeRecovery();
  mediaTransitions.noteRepair(reason,Date.now());
- // Browser 'emptied'/'loadstart' events after this point are CAUSED by the
- // XBridge rebind; diagnostics must not blame the native compositor.
- notifyParent({type:'xbridge-video-recovery-start',reason,kind});
+ notifyParent({type:'xbridge-video-recovery-start',reason,kind,stage});
  try{
+  if(stage==='soft'){
+   // Stage 1: ask the HTML media element to resume, without recreating the
+   // native decoder, detaching its MediaStream or renegotiating WebRTC.
+   media.pause();
+   let rejected=false;
+   await Promise.race([
+    Promise.resolve(media.play()).catch(()=>{rejected=true}),
+    new Promise(resolve=>setTimeout(resolve,1800))
+   ]);
+   if(player!==activePlayer)return false;
+   if(rejected||media.paused){
+    notifyParent({type:'xbridge-video-recovery',step:'gesture-required',kind,stage});
+    status('O VIDAA exige interação para reativar o vídeo. Use Recuperar imagem no celular.');
+    return false;
+   }
+   try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
+   // Stage 2: request a non-destructive visual layout/compositor refresh in
+   // the top-level TV host. The parent owns the native video DOM element.
+   if(canRequestSurfaceRefresh({embedded,hasVideo:Boolean(media.srcObject),overlayOpen:gameOverlayOpen})){
+    notifyParent({type:'xbridge-video-surface-refresh',reason,kind});
+   }
+   lastSoftRecoveryAt=Date.now();
+   lastSoftFreezeCount=currentVideoFreezeCount;
+   healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
+   notifyParent({type:'xbridge-video-recovery',step:'soft',kind,stage});
+   status('xBridge: reativação leve do vídeo solicitada, sem desconectar a partida.');
+   return true;
+  }
+
+  // Stage 3: force a new native video surface using the *same* MediaStream.
+  // This may flash black briefly; reserve it for manual recovery or a second
+  // independently measured freeze after the earlier lightweight attempt.
   const stream=media.srcObject;
   media.pause();
   media.srcObject=null;
   media.srcObject=stream;
-  let playRejected=false;
+  let rejected=false;
   await Promise.race([
-   Promise.resolve(media.play()).catch(()=>{playRejected=true}),
+   Promise.resolve(media.play()).catch(()=>{rejected=true}),
    new Promise(resolve=>setTimeout(resolve,2500))
   ]);
   if(player!==activePlayer)return false;
-  // Earlier code swallowed blocked autoplay and falsely reported success.
-  if(playRejected||media.paused){
-   if(reason==='automatic'){
-    status('O VIDAA bloqueou a retomada automática. Use Recuperar imagem no menu.');
-    notifyParent({type:'xbridge-video-recovery',step:'gesture-required',kind});
-   } else status('O VIDAA bloqueou o vídeo. Use o controle físico da TV para ativar a reprodução.');
+  if(rejected||media.paused){
+   status('O VIDAA bloqueou a retomada do vídeo. Use o controle da TV.');
+   notifyParent({type:'xbridge-video-recovery',step:'gesture-required',kind,stage});
    return false;
   }
   try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
-  healthPrevious=null;
-  freezeChecks=0;
-  if(reason==='automatic'){
-   notifyParent({type:'xbridge-video-recovery',step:'reattach',kind});
-   status('xBridge: tentativa automática de recuperar a imagem; partida mantida.');
-  }else{
-   status('Vídeo reconectado localmente; solicitado novo quadro ao Xbox, sem sair da partida.');
-  }
+  healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
+  lastSoftRecoveryAt=0;lastSoftFreezeCount=null;
+  notifyParent({type:'xbridge-video-recovery',step:'reattach',kind,stage});
+  status(reason==='manual'
+    ?'Vídeo reconectado localmente, sem reiniciar o jogo.'
+    :'xBridge: reconexão forte do vídeo solicitada após nova falha WebRTC.');
   return true;
  }catch(_){
-  if(reason==='manual')status('O VIDAA não aceitou recuperar o vídeo. A sessão Xbox continua aberta.');
+  status('O VIDAA não aceitou a recuperação do vídeo. A sessão Xbox permanece aberta.');
+  notifyParent({type:'xbridge-video-recovery',step:'failed',kind,stage});
   return false;
  }finally{videoRecoveryInFlight=false}
 }
@@ -191,6 +229,7 @@ function startVideoHealth(){
     connection:peer.connectionState
    };
    const previousDecoded=Number(healthPrevious?.decoded)||0;
+   currentVideoFreezeCount=sample.freezeCount;
    const videoPipeline=inspectVideoPipeline(healthPrevious,sample);
    const result=classifyStreamHealth(healthPrevious,sample,6);
    // Video-specific stalls may hide from the native VIDAA visual sampler,
