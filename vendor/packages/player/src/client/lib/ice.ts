@@ -46,11 +46,16 @@ export default class Ice {
                 })
             }
 
+            // xCloud sends "a=candidate:" SDP attribute strings; the browser
+            // RTCIceCandidate API expects only the "candidate:" value.
+            const source = candidates[candidate].candidate
+            const normalized = source.startsWith('a=') ? source.slice(2) : source
             this._peerConnection.addIceCandidate({
-                candidate: candidates[candidate].candidate,
-                sdpMid: candidates[candidate].sdpMid,
-                sdpMLineIndex: candidates[candidate].sdpMLineIndex,
-            })
+                candidate: normalized,
+                sdpMid: candidates[candidate].sdpMid ?? '0',
+                sdpMLineIndex: Number(candidates[candidate].sdpMLineIndex ?? 0),
+            }).catch(() => {})
+
         }
     }
 }
