@@ -23,3 +23,10 @@ test('Only known secure Microsoft image hosts are accepted', () => {
  assert.equal(safeCatalogImage('https://xbox.com.evil.example/cover.jpg'),'');
  assert.ok(safeCatalogImage('http://assets.play.xbox.com/image.png').startsWith('https://'));
 });
+
+test('Cloud entitlement never claims an actual purchase, and missing state stays unknown',()=>{
+ const title={titleId:'OWNEDGAME',details:{productId:'9ZZZZZZZZZZZ'}};
+ assert.equal(gameCard(title,null).accessible,null);
+ assert.equal(gameCard({...title,details:{...title.details,hasEntitlement:true}},null).accessible,true);
+ assert.equal(gameCard({...title,details:{...title.details,hasEntitlement:false}},null).accessible,false);
+});
