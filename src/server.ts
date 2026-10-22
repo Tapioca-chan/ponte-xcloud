@@ -8,6 +8,7 @@ import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
 import {saveRemember,loadRemember,revokeRemember,persistentConfigured} from './remember-store.mjs';
+import {normalizeMicrosoftUserToken} from './msal-token-shape.mjs';
 const rooms=new Map<string,any>();
 // Opaque browser identity. No Microsoft passwords/tokens are sent to the TV.
 // Durable encrypted authorization is persisted in an isolated MongoDB Atlas cluster.
@@ -88,17 +89,24 @@ const server=http.createServer(async(req,res)=>{
     if(rooms.size>=20){reply(res,429,{error:'Limite de sessões Xbox'});return;}
     if(!saved.token || Date.now()-saved.lastRefresh>25*60*1000){
      try{
-      const refreshed=await auth.refreshUserToken(saved.user);
-      if(!refreshed?.access_token)throw Error('Autorização Microsoft expirada');
+      // xal-node returns UserToken {data:{access_token,...}} from refresh,
+      // not raw OAuth JSON. The previous direct access_token check always
+      // failed, even when Microsoft's refresh succeeded.
+      const rotated=await auth.refreshUserToken(saved.user);
+      const refreshed=normalizeMicrosoftUserToken(rotated,saved.user);
+      // Persist a newly rotated refresh token BEFORE any Xbox cloud request.
+      // Otherwise a temporary streaming failure loses the only valid token.
+      const persisted=await saveRemember(key,refreshed);
+      if(!persisted)throw Error('Falha ao persistir o token Microsoft renovado');
+      saved.user=refreshed;
       const tokens=await auth.getStreamingTokens(refreshed);
       const cloud=tokens.xCloudToken?.data;
       if(!cloud?.gsToken)throw Error('Não há token de nuvem');
       const region=cloud.offeringSettings?.regions?.find((r:any)=>r.isDefault)||cloud.offeringSettings?.regions?.[0];
       const host=new URL(region.baseUri);
       if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
-      saved.user=refreshed;saved.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
+      saved.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
       saved.host=host.origin;saved.lastRefresh=Date.now();
-      if(persistentConfigured()) await saveRemember(key,refreshed);
      }catch(error){
       // Preserve a persisted session if the upstream Microsoft/Xbox service
       // temporarily rejects requests; never erase credentials on a 5xx.
