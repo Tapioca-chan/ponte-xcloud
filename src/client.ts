@@ -16,6 +16,7 @@ import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './me
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
+import {decoderSummary} from './decoder-health.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -262,6 +263,12 @@ function startVideoHealth(){
    const previousDecoded=Number(healthPrevious?.decoded)||0;
    currentVideoFreezeCount=sample.freezeCount;
    const videoPipeline=inspectVideoPipeline(healthPrevious,sample);
+   const decodeHealth=decoderSummary(healthPrevious?._rawDecoder||null,inbound);
+   // Carry the previous inbound stats only locally, never through telemetry.
+   (sample as any)._rawDecoder={framesDecoded:inbound.framesDecoded,totalDecodeTime:inbound.totalDecodeTime,
+    packetsReceived:inbound.packetsReceived,packetsLost:inbound.packetsLost,
+    jitterBufferEmittedCount:inbound.jitterBufferEmittedCount,jitterBufferDelay:inbound.jitterBufferDelay,
+    freezeCount:inbound.freezeCount};
    const result=classifyStreamHealth(healthPrevious,sample,6);
    // Video-specific stalls may hide from the native VIDAA visual sampler,
    // but audio packets prove that the wider cloud stream is still alive.
@@ -332,7 +339,12 @@ function startVideoHealth(){
    // unlike Recover Image it never detaches srcObject or flashes the ad.
    const controlChannel=player?._channels?.control as any;
    const controlOpen=controlChannel?._dataChannel?.readyState==='open';
-   if(controlOpen && metroStartupKeyframes.observe({
+   // VIDAA was freezing during startup despite two forced keyframes. Disable
+   // speculative keyframe injection by default for a clean A/B diagnostic.
+   // The safe physical video-plane preallocation and manual repair remain.
+   let startupKeyframeEnabled=false;
+   try{startupKeyframeEnabled=localStorage.getItem('xbridge:metro-startup-keyframes')==='true';}catch(_){}
+   if(startupKeyframeEnabled && controlOpen && metroStartupKeyframes.observe({
     metro:needsXboxDialogCompatibility(launchedStreamingTitle),
     now,firstVideoAt:nativePlaneFirstVideoAt,
     freezeCount:sample.freezeCount,
@@ -461,6 +473,14 @@ function startVideoHealth(){
      metro:needsXboxDialogCompatibility(launchedStreamingTitle),
      ageSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
      freezeCount:sample.freezeCount,earlyFreezeRises,decoded:sample.decoded,
+     fps:decodeHealth.fps,decodeMs:decodeHealth.decodeMs,
+     packetLossPct:decodeHealth.lossPercent,jitterMs:decodeHealth.jitterMs,
+     frameWidth:decodeHealth.width,frameHeight:decodeHealth.height,
+     freezeRise:decodeHealth.freezeRise,
+     codec:(()=>{
+      const type=stats.get(inbound.codecId)?.mimeType;
+      return ['video/H264','video/VP8','video/VP9','video/AV1','video/H265'].includes(type)?type:'unknown';
+     })(),startupKeyframeEnabled,
      visualBlind:nativeBlind,overlay:gameOverlayOpen,
      ready:sample.videoReadyState>=2,
      connected:effectiveState==='connected'||effectiveState==='completed',
