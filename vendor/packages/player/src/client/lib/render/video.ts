@@ -28,7 +28,26 @@ export default class VideoComponent {
         if(element === null) {return}
 
         this._element = videoElement
+        // Avoid rendering a small inline video while awaiting autoplay.
+        // The parent xBridge expands the iframe as soon as the first real frame
+        // is present. A synthetic WebRTC offer is not sufficient evidence.
+        let expanded = false
+        const notifyVideoReady = () => {
+            if (expanded) return
+            expanded = true
+            document.body.classList.add('stream-playing')
+            try {
+                if (window.parent !== window && location.origin === window.parent.location.origin) {
+                    window.parent.postMessage({type:'xbridge-playing',playing:true}, location.origin)
+                }
+            } catch (_) {}
+        }
+        videoElement.addEventListener('loadeddata', notifyVideoReady, {once:true})
+        videoElement.addEventListener('playing', notifyVideoReady, {once:true})
         element.appendChild(this._element)
+        // VIDAA may block autoplay despite muted inline video; the user can
+        // explicitly activate media in settings if the promise is rejected.
+        void videoElement.play().catch(() => {})
         const isStatic = getComputedStyle(element).position === 'static' ? true : false
         if(isStatic === true){
             element.style.position = 'relative'
