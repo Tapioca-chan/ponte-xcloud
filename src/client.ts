@@ -7,6 +7,7 @@ import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
 import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVideoStall} from './video-freeze-watchdog.mjs';
 import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
+import {MediaTransitionWatch} from './video-transition-health.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -21,6 +22,26 @@ let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
+let mediaTransitions=new MediaTransitionWatch();
+let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
+const trackedMediaEvents=['waiting','stalled','playing','pause','emptied','loadeddata','loadstart','resize','error','suspend'];
+function trackVideoTransitions(media:HTMLVideoElement|undefined){
+ if(watchedVideo===media)return;
+ if(watchedVideo && watchedVideoListener)for(const kind of trackedMediaEvents)
+  watchedVideo.removeEventListener(kind,watchedVideoListener);
+ watchedVideo=media||null;watchedVideoListener=null;
+ if(!media)return;
+ watchedVideoListener=(event:Event)=>{
+  const transition=mediaTransitions.noteEvent(event.type,Date.now());
+  if(!transition)return;
+  notifyParent({type:'xbridge-video-transition',
+   kind:transition.kind,causedByXBridge:transition.initiatedByXBridge,
+   repairReason:transition.initiatedByXBridge?transition.repairReason:null,
+   readyState:media.readyState,paused:media.paused,
+   width:media.videoWidth,height:media.videoHeight});
+ };
+ for(const kind of trackedMediaEvents)media.addEventListener(kind,watchedVideoListener);
+}
 // Track each link of Android -> WebRTC gamepad delivery without recording button
 // sequences, Xbox tokens, or session identifiers.
 const inputDebug={androidFrames:0,aPresses:0,gamepadPacketsSent:0,lastAndroidAt:0,lastAAt:0};
@@ -48,6 +69,7 @@ function stopVideoHealth(){
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
+ trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -68,6 +90,10 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   return false;
  }
  videoRecoveryInFlight=true;
+ mediaTransitions.noteRepair(reason,Date.now());
+ // Browser 'emptied'/'loadstart' events after this point are CAUSED by the
+ // XBridge rebind; diagnostics must not blame the native compositor.
+ notifyParent({type:'xbridge-video-recovery-start',reason,kind});
  try{
   const stream=media.srcObject;
   media.pause();
@@ -128,6 +154,7 @@ function startVideoHealth(){
     return;
    }
    const media=player.getVideoElement?.() as (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
+   trackVideoTransitions(media);
    const compositorFrames=Number(media?.__xbridgePresentedFrames)||0;
    let qualityFrames=0,droppedFrames=0;
    try {
@@ -225,11 +252,25 @@ function startVideoHealth(){
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
      visualStatus:'recovery-failed',signalStatus:kind});
    }
+   if(mediaTransitions.shouldRecoverWait({
+    now,readyState:sample.videoReadyState,paused:sample.videoPaused,
+    hasVideo:Boolean(media?.srcObject),
+    connected:effectiveState==='connected'||effectiveState==='completed',
+    overlayOpen:gameOverlayOpen,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt
+   })&&!videoRecoveryInFlight){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+    status('VIDAA: espera de vídeo prolongada após uma transição. Recuperando a imagem…');
+    await recoverXboxVideoLocally('automatic','browser-waiting');
+    visualWatchdog?.reset();
+   }
    // Experimental fallback ONLY for Metro on unreadable native VIDAA planes.
    // We cannot detect the picture freezing when decoded frames still advance.
    // Rebind sparingly as maintenance, after a generous free-tier ad grace.
-   let nativeRefreshEnabled=true;
-   try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')!=='false';}catch(_){}
+   // OFF by default: periodic srcObject reattachments themselves produce a
+   // black flash and might be mistaken for the original game freeze.
+   let nativeRefreshEnabled=false;
+   try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
    if(shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
     now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
