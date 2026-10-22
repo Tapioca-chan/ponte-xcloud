@@ -5,7 +5,7 @@ import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
-import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream} from './video-freeze-watchdog.mjs';
+import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVideoStall} from './video-freeze-watchdog.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -15,7 +15,7 @@ const $=(id:string)=>document.getElementById(id) as any;
 const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-player-status',message:s});};
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
-let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,lastKeyframeRequest=0;
+let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
@@ -43,7 +43,7 @@ function clearInputHealth(){
 }
 function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
- videoHealthTimer=null;healthPrevious=null;freezeChecks=0;
+ videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  visualWatchdog=null;visualSampleCanvas=null;
 }
 function trackMeaningfulGamepadInput(state:any){
@@ -114,11 +114,16 @@ function startVideoHealth(){
    const peer=monitoredPlayer._peerConnection;
    const stats=await peer.getStats();
    if(player!==monitoredPlayer)return;
-   let inbound:any=null;
+   let inbound:any=null,audioInbound:any=null;
    stats.forEach((x:any)=>{
     if(x.type==='inbound-rtp'&&(x.kind==='video'||x.mediaType==='video'))inbound=x;
+    if(x.type==='inbound-rtp'&&(x.kind==='audio'||x.mediaType==='audio'))audioInbound=x;
    });
-   if(!inbound)return;
+   if(!inbound){
+    notifyParent({type:'xbridge-freeze-diagnostics',visualStatus:'video-stats-missing',
+     signalStatus:'unknown',visualStillMs:0});
+    return;
+   }
    const media=player.getVideoElement?.() as (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
    const compositorFrames=Number(media?.__xbridgePresentedFrames)||0;
    let qualityFrames=0,droppedFrames=0;
@@ -134,6 +139,7 @@ function startVideoHealth(){
    const sample={
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
+    audioReceived:Number(audioInbound?.packetsReceived)||0,
     presented,
     videoQualityFrames:qualityFrames,
     videoDroppedFrames:droppedFrames,
@@ -144,6 +150,10 @@ function startVideoHealth(){
     connection:peer.connectionState
    };
    const result=classifyStreamHealth(healthPrevious,sample,6);
+   // Video-specific stalls may hide from the native VIDAA visual sampler,
+   // but audio packets prove that the wider cloud stream is still alive.
+   const audioProgress=classifyAudioVideoStall(healthPrevious,sample);
+   audioVideoStallChecks=audioProgress?audioVideoStallChecks+1:0;
    healthPrevious=sample;
    const controller=reportInputHealth();
    const sentNow=controller.gamepadPacketsSent;
@@ -170,19 +180,31 @@ function startVideoHealth(){
     signalStatus:result.kind
    });
    // Run on evidence only: no timed repair during Xbox's free ad.
-   const signalFrozen=(result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3;
+   const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
+     || audioVideoStallChecks>=3;
    const visualFrozen=visual?.frozen===true;
+   // VIDAA may leave peer.connectionState on "connecting" even with RTP
+   // flowing. Treat a video-ready stream as connected unless explicitly failed.
+   const connectedState=peer.connectionState;
+   const effectiveState=(connectedState==='failed'||connectedState==='closed'||connectedState==='disconnected')
+     ?connectedState:(sample.videoReadyState>=2 &&
+       (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
+   if(audioVideoStallChecks>=3)notifyParent({type:'xbridge-freeze-diagnostics',
+    visualStatus:'audio-active-video-stalled',visualStillMs:visual?.ageMs||0,
+    signalStatus:result.kind});
    if(canAutoRecoverStream({
     now,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt,
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
-    connection:peer.connectionState
+    connection:effectiveState
    })&&!videoRecoveryInFlight){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
-    const kind=visualFrozen?'visual-still':result.kind;
+    const kind=audioVideoStallChecks>=3?'audio-active-video-stalled':
+      visualFrozen?'visual-still':result.kind;
     status('Possível congelamento detectado ('+kind+'). Recuperando imagem…');
     const recovered=await recoverXboxVideoLocally('automatic',kind);
     visualWatchdog?.reset();
+    audioVideoStallChecks=0;
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
      visualStatus:'recovery-failed',signalStatus:kind});
    }
