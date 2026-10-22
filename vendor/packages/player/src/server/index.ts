@@ -1,5 +1,5 @@
 import type { xStreamToken, xCloudStreamConfig, SDPResponse, startStreamResponse, StatusResponse, ErrorResponse } from '../types/index';
-import {xboxAdvertisedDisplay} from '../../../../../src/stream-device-display.mjs';
+import {xboxAdvertisedDisplay,xboxStreamingOsName} from '../../../../../src/stream-device-display.mjs';
 export type { xStreamToken, startStreamResponse, SDPResponse, xCloudStreamConfig, StatusResponse, ErrorResponse };
 
 export const ping = () => 'pong';
@@ -18,7 +18,7 @@ export const startStream = async (xStreamToken:xStreamToken, xCloudStreamConfig:
             useIceConnection: false,
             timezoneOffsetMinutes: 120,
             sdkType: 'web',
-            osName: 'windows',
+            osName: xboxStreamingOsName(xCloudStreamConfig.resolution),
         },
         serverId: (xCloudStreamConfig.type === 'home') ? xCloudStreamConfig.id : '',
         fallbackRegionNames: [],
@@ -153,7 +153,7 @@ const getDeviceInfo = (xCloudStreamConfig:xCloudStreamConfig) => {
                 'sdktype': 'web',
             },
             'os': {
-                'name': (xCloudStreamConfig.resolution === 1080) ? 'windows' : 'android',
+                'name': xboxStreamingOsName(xCloudStreamConfig.resolution),
                 'ver': '22631.2715',
                 'platform': 'desktop',
             },
