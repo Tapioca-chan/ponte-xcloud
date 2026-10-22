@@ -26,3 +26,22 @@ test('manual recovery always uses previously successful strong operation',()=>{
  assert.equal(canRequestSurfaceRefresh({embedded:true,hasVideo:false}),false);
  assert.equal(canRequestSurfaceRefresh({embedded:true,hasVideo:true,overlayOpen:true}),false);
 });
+
+test('one VIDAA opaque Metro escalation is allowed after soft repair without readable image',()=>{
+ assert.equal(selectVideoRecoveryMode({
+  now:240000,lastSoftAt:214000,lastSoftFreezeCount:1,freezeCount:1,
+  compatibilityEscalation:true
+ }),'rebind');
+ assert.equal(selectVideoRecoveryMode({
+  now:233000,lastSoftAt:214000,lastSoftFreezeCount:1,freezeCount:1,
+  compatibilityEscalation:true
+ }),'soft');
+ assert.equal(selectVideoRecoveryMode({
+  now:240000,lastSoftAt:0,lastSoftFreezeCount:1,freezeCount:1,
+  compatibilityEscalation:true
+ }),'soft');
+ assert.equal(selectVideoRecoveryMode({
+  now:240000,lastSoftAt:214000,manual:true,
+  compatibilityEscalation:true
+ }),'rebind');
+});
