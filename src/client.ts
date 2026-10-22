@@ -2,6 +2,7 @@ import QRCode from 'qrcode';
 import {mountEmbeddedDashboard} from './embedded-dashboard.mjs';
 import {serializeLocalIceCandidates} from './ice-bridge.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
+import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -173,14 +174,51 @@ if (embedded) {
  const handlers:any={};
  ['play','sound','fullscreen','stop'].forEach(id=>handlers[id]=$(id).onclick);
  const dashboard=mountEmbeddedDashboard({api,QRCode,status,notifyParent,handlers});
+ const inputEdges=new MenuInputEdges();
+ function handleConsoleController(actions:string[]){
+  if(document.body.classList.contains('stream-playing'))return;
+  const panel=$('xb-settings-panel');
+  const scope=panel&&!panel.hidden?panel:
+   !$('xb-auth').hidden?$('xb-auth'):$('xb-library');
+  const visible=(selector:string)=>Array.from(document.querySelectorAll<HTMLElement>(selector))
+    .filter(el=>!el.hidden&&!el.hasAttribute('disabled')&&el.getClientRects().length>0
+      &&getComputedStyle(el).visibility!=='hidden'
+      &&!el.closest('[hidden]'));
+  for(const action of actions){
+   if(action==='menu'){
+    $('xb-settings-toggle')?.click();
+    ($('xb-settings-panel').hidden?$('xb-settings-toggle'):$('xb-settings-close'))?.focus();
+    continue;
+   }
+   if(action==='back'){
+    if(panel&&!panel.hidden){$('xb-settings-close').click();$('xb-settings-toggle').focus();}
+    else if(!$('xb-library').hidden){$('xb-nav-home')?.focus();$('xb-nav-home')?.click();}
+    continue;
+   }
+   const candidates=visible('button, a[href], input[type="search"], input:not([type]), [role="button"]')
+      .filter(el=>scope.contains(el)||(!panel||panel.hidden)&&el.closest('.xb-app-top'));
+   const current=document.activeElement as HTMLElement;
+   if(action==='confirm'){
+    if(current&&candidates.includes(current)){ if(current.tagName==='INPUT'){current.focus()}else current.click();}
+    else if(candidates.length){candidates[0].focus();}
+   }else if(['up','down','left','right'].includes(action)){
+    const next=selectMenuTarget(candidates,current,action);
+    if(next){next.focus();if(typeof next.scrollIntoView==='function')next.scrollIntoView({block:'nearest',inline:'nearest'});}
+   }
+  }
+ }
 
  window.addEventListener('message',event=>{
   if(!acceptsParent(event,window.parent))return;
   if(event.data?.type==='xbridge-input'){
    frame=compactFrame(event.data.packet);lastFrame=Date.now();
+   // In catalog mode the Android D-pad, left stick and A/B/Menu operate UI.
+   // In play mode every original frame remains dedicated to Xbox input.
+   if(!document.body.classList.contains('stream-playing'))handleConsoleController(inputEdges.sample(frame));
+   else inputEdges.release();
    $('remote').textContent='Controle do celular recebendo comandos';
   } else if(event.data?.type==='xbridge-release'){
-   frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';
+   frame=sanitize({});lastFrame=0;inputEdges.release();$('remote').textContent='Aguardando comandos do celular';
   } else if(event.data?.type==='xbridge-game-menu') {
    // Return to catalog WITHOUT losing the Xbox account cookie.
    // Await reset before enabling another title; avoids concurrent Xbox sessions.
