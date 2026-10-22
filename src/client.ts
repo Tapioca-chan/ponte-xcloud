@@ -25,6 +25,7 @@ let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
+let queuedMetroIntroRecovery=false;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
@@ -73,6 +74,7 @@ function stopVideoHealth(){
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
+ queuedMetroIntroRecovery=false;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();
 }
@@ -256,15 +258,20 @@ function startVideoHealth(){
        (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
    // Credits fallback: repeated A with at least one real WebRTC freeze,
    // bounded to the first five minutes and never automatically replayed.
-   const introFreeze=shouldRecoverMetroIntro({
+   // Evaluate eligibility independently from overlay visibility. If the
+   // detector sees evidence at 90 s while settings are open, defer a SINGLE
+   // attempt until the overlay closes instead of losing that opportunity.
+   const introEligible=shouldRecoverMetroIntro({
     title:launchedStreamingTitle,
     sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
     aPresses:inputDebug.aPresses,recentFreezeEvents:freezeEvidence.recentEvents,
     totalFreezeCount:sample.freezeCount,
     now,lastAttemptAt:metroLastRecoveryAt,attempts:metroRecoveryAttempts,
-    overlayOpen:gameOverlayOpen,videoReadyState:sample.videoReadyState,
+    overlayOpen:false,videoReadyState:sample.videoReadyState,
     hasVideo:Boolean(media?.srcObject),connection:effectiveState
    });
+   if(introEligible && gameOverlayOpen)queuedMetroIntroRecovery=true;
+   const introFreeze=introEligible && !gameOverlayOpen;
    const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
      || audioVideoStallChecks>=3 || recurringMetroFreezes || introFreeze;
    const visualFrozen=visual?.frozen===true;
@@ -275,7 +282,8 @@ function startVideoHealth(){
     freezeEvents:freezeEvidence.recentEvents,totalFreezes:sample.freezeCount,
     aPresses:inputDebug.aPresses,
     streamAgeSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
-    overlayOpen:gameOverlayOpen,attempts:metroRecoveryAttempts,
+    overlayOpen:gameOverlayOpen,queuedOnClose:queuedMetroIntroRecovery,
+    attempts:metroRecoveryAttempts,
     blocker:describeRecoveryBlockers({
      title:launchedStreamingTitle,
      sessionAgeMs:nativePlaneFirstVideoAt?now-nativePlaneFirstVideoAt:0,
@@ -298,6 +306,7 @@ function startVideoHealth(){
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
     connection:effectiveState
    })&&!videoRecoveryInFlight && !gameOverlayOpen){
+    queuedMetroIntroRecovery=false;
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     const kind=audioVideoStallChecks>=3?'audio-active-video-stalled':
@@ -693,6 +702,24 @@ if (embedded) {
    })();
   } else if(event.data?.type==='xbridge-overlay-state'){
    gameOverlayOpen=event.data.open===true;
+   if(!gameOverlayOpen && queuedMetroIntroRecovery){
+    // The browser may spend its first eligible post-ad moment inside the
+    // settings overlay. Trigger the queued, evidence-backed recovery quickly
+    // after closing, without forcing another 6.5 s stats cycle.
+    setTimeout(()=>{
+     const age=nativePlaneFirstVideoAt?Date.now()-nativePlaneFirstVideoAt:Infinity;
+     if(gameOverlayOpen || !queuedMetroIntroRecovery || !started ||
+        metroRecoveryAttempts!==0 || videoRecoveryInFlight ||
+        age<90000 || age>300000)return;
+     const media=player?.getVideoElement?.() as HTMLVideoElement|undefined;
+     if(!media?.srcObject || media.readyState<2)return;
+     queuedMetroIntroRecovery=false;
+     metroRecoveryAttempts++;
+     metroLastRecoveryAt=Date.now();
+     status('Metro Exodus: recuperação pendente liberada após fechar o painel.');
+     void recoverXboxVideoLocally('automatic','metro-intro-a-freeze');
+    },650);
+   }
   } else if(event.data?.type==='xbridge-reannounce-gamepad'){
    // Reannounce the existing virtual controller without detaching it.
    // Deliberately never fake A/Start/Menu input to advance a game.
