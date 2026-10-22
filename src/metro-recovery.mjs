@@ -2,6 +2,8 @@
 // decode/compositor stalls. A motionless game screen alone is not a freeze.
 // The recovery reuses the same MediaStream and does not restart the Xbox title.
 export function shouldRebindMetroVideo(title, kind, consecutiveChecks, attempted) {
+  // Historical one-shot API retained for existing regression tests.
+  if (consecutiveChecks < 3) return false;
   return shouldAttemptMetroRecovery({
     title, kind, consecutiveChecks, attempts: attempted ? 3 : 0,
     hasVideo: true, connection: 'connected', now: 60000,
