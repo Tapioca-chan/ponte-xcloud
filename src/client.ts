@@ -181,6 +181,15 @@ if (embedded) {
    $('remote').textContent='Controle do celular recebendo comandos';
   } else if(event.data?.type==='xbridge-release'){
    frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';
+  } else if(event.data?.type==='xbridge-game-menu') {
+   // Return to the catalog WITHOUT revoking the Microsoft login.
+   // Close the streaming session to prevent invisible playback on low-end TVs.
+   document.body.classList.remove('stream-playing');
+   notifyParent({type:'xbridge-playing',playing:false});
+   try{clearInterval(keepalive);player?.destroy();player=undefined;}catch(_){}
+   if(started){void api('reset').catch(()=>status('Não foi possível encerrar a partida na nuvem.'));}
+   started=false;$('play').disabled=false;
+   status('Partida encerrada. Escolha outro jogo ou retome pelo catálogo.');
   }
  });
  document.addEventListener('playing',event=>{
@@ -188,8 +197,27 @@ if (embedded) {
  },true);
  setInterval(()=>{if(lastFrame && Date.now()-lastFrame>400){frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';}},200);
  const prepare=run(async()=>{
-  status('Preparando sessão Xbox…');setBackend(location.origin+(location.pathname.startsWith('/player')?'/player':''));room=await api('create');
-  dashboard.ready();status('Pronto. Autorize sua conta Microsoft pelo QR Code.');notifyParent({type:'xbridge-ready'});
+  status('Verificando conexão Xbox salva…');
+  setBackend(location.origin+(location.pathname.startsWith('/player')?'/player':''));
+  try {
+   // /api/resume checks an HttpOnly first-party cookie and returns only a
+   // fresh transient room key. Never store Microsoft access tokens in JS.
+   const previous=await api('resume');
+   if(previous.ok&&previous.id&&previous.tvKey){
+    room={id:previous.id,tvKey:previous.tvKey};
+    dashboard.ready();
+    status('Conta Xbox restaurada. Carregando biblioteca…');
+    notifyParent({type:'xbridge-ready'});
+    await dashboard.restored();
+    return;
+   }
+  }catch(_){
+   // Invalid/expired backend session means the user must authorize again.
+   // No Microsoft password is ever asked by the xBridge page.
+  }
+  room=await api('create');
+  dashboard.ready();status('Pronto. Autorize sua conta Microsoft pelo QR Code.');
+  notifyParent({type:'xbridge-ready'});
  });
  void prepare();
 }
