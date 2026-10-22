@@ -208,11 +208,27 @@ $('play').onclick=async()=>{
     return;
    }
    controlRegistered=true;
-   original();
-   channel.sendGamepadState(0,true,{
+   const androidHandler={
     getGamepadState:()=>Date.now()-lastFrame<650?frame:sanitize({}),
     handleVibration:()=>{},detach:()=>{}
-   });
+   };
+   if(metroSystemDialogCompat) {
+    // Metro startup may sample device availability immediately. Do not
+    // advertise + remove the controller within the same handshake tick.
+    channel.authorizeWithStableGamepad(androidHandler);
+    announce('Metro Exodus: controle virtual registrado de forma contínua.');
+    // One later announcement helps if the title attaches its input listener
+    // after the stream handshake. Never disconnect or inject button presses.
+    setTimeout(()=>{
+      if(player && !player._isDestoyed && channel.getGamepadHandlers()?.[0]===androidHandler
+        && (channel as any)._dataChannel?.readyState==='open') {
+        channel.reannounceStableGamepad();
+      }
+    },6500);
+   } else {
+    original();
+    channel.sendGamepadState(0,true,androidHandler);
+   }
    notifyParent({type:'xbridge-control-ready'});
   };
   channel.sendAuthorization=registerGamepad;
