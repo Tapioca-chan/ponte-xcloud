@@ -115,3 +115,13 @@ body.xbridge-embedded{background:#0b0d10;color:#f3f4f6;font:15px/1.45 Arial,Helv
  .xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
  .xb-hero-actions span{display:none}.xb-player-tools{justify-content:center}
 }
+
+
+/* Clear distinctions between cloud catalog, licensed access and account activity. */
+.xb-library-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:5px 35px 10px}
+.xb-console .xb-filter{font-size:12px;font-weight:700;margin:0;background:#202722;color:#c2d8ca;border:1px solid #394a40;padding:10px 13px;border-radius:9px}
+.xb-console .xb-filter.is-active,.xb-console .xb-filter:hover{background:#245637;border-color:#69da91;color:#fff}
+.xb-library-notice{color:#9fb1a4;font-size:11px;margin:0;padding:3px 35px 18px;max-width:none;line-height:1.55}
+.xb-game-access{font-size:11px;color:#a5d2b3;margin:10px 0 0;max-width:560px}
+.xb-launch-status{font-size:12px;color:#efcf8f;margin:7px 0 0;min-height:0;max-width:600px;overflow-wrap:anywhere}
+@media(max-width:780px){.xb-library-filters{padding:5px 17px 10px}.xb-library-notice{padding:3px 17px 13px}.xb-console .xb-filter{font-size:11px;padding:9px 10px}}
