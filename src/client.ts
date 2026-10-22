@@ -29,6 +29,7 @@ let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let queuedMetroIntroRecovery=false;
+let lastVideoTelemetryAt=0;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
@@ -78,9 +79,14 @@ function stopVideoHealth(){
  lastSoftRecoveryAt=0;lastSoftFreezeCount=null;currentVideoFreezeCount=null;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
- queuedMetroIntroRecovery=false;
+ queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();
+}
+// Coarse operational media state only; no video pixels, raw gamepad packets,
+// session IDs, room codes, Microsoft credentials or token content.
+function traceVideo(phase:string,details:Record<string,unknown>={}){
+ notifyParent({type:'xbridge-video-telemetry',phase,...details});
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -114,6 +120,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
  webRtcFreezeWatch.acknowledgeRecovery();
  mediaTransitions.noteRepair(reason,Date.now());
  notifyParent({type:'xbridge-video-recovery-start',reason,kind,stage});
+ traceVideo('attempt',{stage,kind,manual:reason==='manual',freezeCount:currentVideoFreezeCount,attempts:metroRecoveryAttempts});
  try{
   if(stage==='soft'){
    // Stage 1: ask the HTML media element to resume, without recreating the
@@ -127,6 +134,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
    if(player!==activePlayer)return false;
    if(rejected||media.paused){
     notifyParent({type:'xbridge-video-recovery',step:'gesture-required',kind,stage});
+    traceVideo('result',{stage,result:'gesture-required',freezeCount:currentVideoFreezeCount});
     status('O VIDAA exige interação para reativar o vídeo. Use Recuperar imagem no celular.');
     return false;
    }
@@ -140,6 +148,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
    lastSoftFreezeCount=currentVideoFreezeCount;
    healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
    notifyParent({type:'xbridge-video-recovery',step:'soft',kind,stage});
+   traceVideo('result',{stage,result:'play-accepted',freezeCount:currentVideoFreezeCount});
    status('xBridge: reativação leve do vídeo solicitada, sem desconectar a partida.');
    return true;
   }
@@ -160,12 +169,14 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   if(rejected||media.paused){
    status('O VIDAA bloqueou a retomada do vídeo. Use o controle da TV.');
    notifyParent({type:'xbridge-video-recovery',step:'gesture-required',kind,stage});
+   traceVideo('result',{stage,result:'gesture-required',freezeCount:currentVideoFreezeCount});
    return false;
   }
   try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
   healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
   lastSoftRecoveryAt=0;lastSoftFreezeCount=null;
   notifyParent({type:'xbridge-video-recovery',step:'reattach',kind,stage});
+  traceVideo('result',{stage,result:'play-accepted',freezeCount:currentVideoFreezeCount});
   status(reason==='manual'
     ?'Vídeo reconectado localmente, sem reiniciar o jogo.'
     :'xBridge: reconexão forte do vídeo solicitada após nova falha WebRTC.');
@@ -173,6 +184,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
  }catch(_){
   status('O VIDAA não aceitou a recuperação do vídeo. A sessão Xbox permanece aberta.');
   notifyParent({type:'xbridge-video-recovery',step:'failed',kind,stage});
+  traceVideo('result',{stage,result:'exception',freezeCount:currentVideoFreezeCount});
   return false;
  }finally{videoRecoveryInFlight=false}
 }
@@ -394,6 +406,21 @@ function startVideoHealth(){
    };
    const doSoft=shouldStartMetroOpaqueRepair(opaqueRepair);
    const doStrong=shouldEscalateMetroOpaqueRepair(opaqueRepair);
+   if(now-lastVideoTelemetryAt>19000){
+    lastVideoTelemetryAt=now;
+    traceVideo('heartbeat',{
+     metro:needsXboxDialogCompatibility(launchedStreamingTitle),
+     ageSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
+     freezeCount:sample.freezeCount,decoded:sample.decoded,
+     visualBlind:nativeBlind,overlay:gameOverlayOpen,
+     ready:sample.videoReadyState>=2,
+     connected:effectiveState==='connected'||effectiveState==='completed',
+     attempts:metroRecoveryAttempts,softEligible:doSoft,strongEligible:doStrong,
+     recoveryBusy:videoRecoveryInFlight,compatEnabled:opaqueRepairEnabled,
+     hasVideo:Boolean(media?.srcObject),lastSoftAgoSec:lastSoftRecoveryAt?
+      Math.round((now-lastSoftRecoveryAt)/1000):null
+    });
+   }
    if(doSoft || doStrong){
     // No Game Pass advertisement skipping, no Xbox session restart, no
     // controller presses. Reconnect the DOM media element only once maximum.
