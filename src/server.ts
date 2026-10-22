@@ -172,13 +172,20 @@ const server=http.createServer(async(req,res)=>{
      const host=new URL(region.baseUri);if(host.protocol!=='https:'||!host.hostname.endsWith('.xboxlive.com'))throw Error('Região inválida');
      room.user=user;room.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};room.host=host.origin;
      // Remember only an opaque secret in the TV browser; tokens remain server-side.
-     const previous=getRememberId(req);if(previous){remembered.delete(previous);await revokeRemember(previous);}
-     const key=secret();room.rememberKey=key;
-     remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
+     // Commit a new durable session before replacing the previous cookie.
+     // If MongoDB cannot write, keep the last working authorization intact.
      if(!persistentConfigured())throw Error('Armazenamento persistente não configurado');
+     const previous=getRememberId(req);
+     const key=secret();
      const durable=await saveRemember(key,user);
      if(!durable)throw Error('Não foi possível salvar a autorização Xbox no banco');
+     room.rememberKey=key;
+     remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
      setRememberCookie(res,key);
+     if(previous&&previous!==key){
+      remembered.delete(previous);
+      try{await revokeRemember(previous)}catch{} // Previous TTL expires regardless.
+     }
      delete room.device;reply(res,200,{ok:true,remembered:true});return;
     }
     if(!room.token){reply(res,401,{error:'Faça login primeiro'});return;}
