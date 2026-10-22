@@ -8,6 +8,7 @@ import {needsXboxDialogCompatibility} from './game-compat.mjs';
 import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVideoStall} from './video-freeze-watchdog.mjs';
 import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 import {MediaTransitionWatch} from './video-transition-health.mjs';
+import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -170,6 +171,9 @@ function startVideoHealth(){
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
     audioReceived:Number(audioInbound?.packetsReceived)||0,
+    freezeCount:Number.isFinite(inbound.freezeCount)?Number(inbound.freezeCount):null,
+    totalFreezesDuration:Number.isFinite(inbound.totalFreezesDuration)?Number(inbound.totalFreezesDuration):null,
+    keyFramesDecoded:Number.isFinite(inbound.keyFramesDecoded)?Number(inbound.keyFramesDecoded):null,
     presented,
     videoQualityFrames:qualityFrames,
     videoDroppedFrames:droppedFrames,
@@ -180,6 +184,7 @@ function startVideoHealth(){
     connection:peer.connectionState
    };
    const previousDecoded=Number(healthPrevious?.decoded)||0;
+   const videoPipeline=inspectVideoPipeline(healthPrevious,sample);
    const result=classifyStreamHealth(healthPrevious,sample,6);
    // Video-specific stalls may hide from the native VIDAA visual sampler,
    // but audio packets prove that the wider cloud stream is still alive.
@@ -195,6 +200,12 @@ function startVideoHealth(){
    notifyParent({type:'xbridge-video-health',message:result.reason,
     kind:result.kind,width:sample.videoWidth,height:sample.videoHeight,
     decoded:sample.decoded,received:sample.received,presented:sample.presented,
+    decodedDelta:videoPipeline.decodedDelta,
+    receivedDelta:videoPipeline.receivedDelta,
+    freezeCount:videoPipeline.freezeCount,
+    freezeDelta:videoPipeline.freezeDelta,
+    freezeDurationDeltaSec:videoPipeline.freezeDurationDeltaSec,
+    keyFramesDecoded:sample.keyFramesDecoded,
     quality:sample.videoQualityFrames,dropped:sample.videoDroppedFrames,
     paused:sample.videoPaused,readyState:sample.videoReadyState,
     input:{...controller,packetsInWindow:inputPacketsInWindow}});
