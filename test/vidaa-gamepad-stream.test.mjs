@@ -38,3 +38,14 @@ test('WebRTC telemetry separates frozen video decoding from Xbox game splash',()
  assert.equal(classifyStreamHealth(previous,previous,6).kind,'network-stall');
  assert.equal(classifyStreamHealth(previous,{...previous,connection:'failed'}).kind,'network-error');
 });
+
+
+test('WebRTC presentation freeze is detected even with decoded frames rising',()=>{
+ const baseline={decoded:400,received:7000,presented:350,videoWidth:1920,videoHeight:1080,connection:'connected'};
+ const framesNotPainted={...baseline,decoded:450,received:7500,presented:350};
+ assert.equal(classifyStreamHealth(baseline,framesNotPainted).kind,'presentation-stall');
+ const advancing={...baseline,decoded:455,received:7560,presented:395};
+ assert.equal(classifyStreamHealth(baseline,advancing).kind,'active');
+ const unknown={...baseline,presented:null,decoded:410};
+ assert.equal(classifyStreamHealth({...baseline,presented:null},unknown).kind,'active');
+});
