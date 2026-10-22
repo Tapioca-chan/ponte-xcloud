@@ -31,7 +31,7 @@ export function shouldEscalateMetroOpaqueRepair(a){
  // evidence of repeated WebRTC trouble and an actual soft recovery.
  const earlyEvidence=Number.isInteger(a.earlyFreezeRises)&&a.earlyFreezeRises>=2;
  const minAge=earlyEvidence?70000:130000;
- const minSinceSoft=earlyEvidence?19000:25000;
+ const minSinceSoft=earlyEvidence?20000:25000;
  return age>=minAge && age<=255000 && a.attempts===1 &&
    Number.isFinite(a.lastSoftRecoveryAt)&&a.lastSoftRecoveryAt>0 &&
    a.now-a.lastSoftRecoveryAt>=minSinceSoft &&
