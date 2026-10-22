@@ -118,7 +118,33 @@ const server=http.createServer(async(req,res)=>{
      reply(res,200,{games,total:titles.length,offset,next:offset+page.length<titles.length?offset+page.length:null,source:'xbox'});
      return;
     }
-if(action==='titles'){
+if(action==='recent'){
+     // Per-account recently played cloud titles. Unlike /v2/titles, this
+     // is personalized, but it is NOT a purchased-games ownership list.
+     const r=await fetch(room.host+'/v2/titles/mru?mr=25',{
+      headers:{Authorization:'Bearer '+room.token.token},
+      signal:AbortSignal.timeout(15000)
+     });
+     if(!r.ok)throw Error('Jogos recentes indisponíveis ('+r.status+')');
+     const data:any=await r.json();
+     const recent=Array.isArray(data.results)?data.results:[];
+     const ids=[...new Set(recent.map((t:any)=>t?.details?.productId).filter((id:any):id is string=>typeof id==='string'&&/^[a-z0-9]{8,20}$/i.test(id)))];
+     let products:any={};
+     if(ids.length){
+      try{
+       const meta=await fetch('https://catalog.gamepass.com/v3/products?market=BR&language=pt-BR&hydration=RemoteHighSapphire0',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','ms-cv':'0','calling-app-name':'Xbox Cloud Gaming Web','calling-app-version':'21.0.0'},
+        body:JSON.stringify({Products:ids}),
+        signal:AbortSignal.timeout(12000)
+       });
+       if(meta.ok){const detail:any=await meta.json();products=detail.Products||{};}
+      }catch{}
+     }
+     reply(res,200,{games:recent.map((t:any)=>gameCard(t,products[t?.details?.productId]||null)),source:'xbox-cloud-recent'});
+     return;
+    }
+    if(action==='titles'){
      const r=await fetch(room.host+'/v2/titles',{headers:{Authorization:'Bearer '+room.token.token},signal:AbortSignal.timeout(20000)});
      if(!r.ok)throw Error('Catálogo indisponível ('+r.status+')');const data=await r.json();reply(res,200,data);return;
     }
@@ -150,13 +176,14 @@ if(action==='titles'){
     const raw=e instanceof Error?e.message:'';
     const matched=raw.match(/(?:Streaming HTTP |indisponível \()([45][0-9]{2})/i);
     const upstreamStatus=matched?Number(matched[1]):undefined;
-    const allowedActions=new Set(['create','login','verify','catalog','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
+    const allowedActions=new Set(['create','login','verify','catalog','recent','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
     const stage=allowedActions.has(actionName)?actionName:'init';
     const messages:Record<string,string>={
       create:'Não foi possível criar a sala de jogos.',
       login:'Não foi possível iniciar a autorização Microsoft.',
       verify:'Não foi possível confirmar a autorização Xbox.',
       catalog:'Falha ao carregar o catálogo Xbox.',
+      recent:'Não foi possível consultar seus jogos recentes na nuvem.',
       titles:'Falha ao consultar os jogos Xbox.',
       start:'O Xbox não criou a sessão deste jogo. Verifique o acesso ao título.',
       state:'Não foi possível consultar o estado da sessão Xbox.',
