@@ -36,7 +36,10 @@ export default class xCloudPlayer {
         this._elementId = elementId;
         this._peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
         const videoTransceiver = this._peerConnection.addTransceiver('video', { direction: 'recvonly' })
-        if (videoTransceiver.setCodecPreferences) videoTransceiver.setCodecPreferences(this._sdpHelper.getDefaultCodecPreferences())
+        if (videoTransceiver.setCodecPreferences) {
+            const available = this._sdpHelper.getDefaultCodecPreferences()
+            if (available.length > 0) videoTransceiver.setCodecPreferences(available)
+        }
 
         this._peerConnection.ontrack = (event) => {
 
@@ -71,7 +74,7 @@ export default class xCloudPlayer {
             offerToReceiveVideo: true,
         })
         const finalOffer = this._sdpHelper.setLocalSDP(offer)
-        this._peerConnection.setLocalDescription(finalOffer)
+        await this._peerConnection.setLocalDescription(finalOffer)
 
         return finalOffer
     }
