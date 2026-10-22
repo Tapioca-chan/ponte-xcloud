@@ -51,7 +51,11 @@ export default class InputChannel extends Channel {
 
         console.log('[InputChannel] Sent metadata:', Packet, Packet.toBuffer())
 
-        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), 16)
+        // Low-power VIDAA browser: 30 Hz controller heartbeat avoids the
+        // 60 Hz JS packet churn that can overload its single-core WebView.
+        // Other clients retain the original 60 Hz cadence.
+        const interval = typeof document !== 'undefined' && document.body.classList.contains('xbridge-embedded') ? 33 : 16
+        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), interval)
     }
 
     onMessage(event: MessageEvent<any>) {
@@ -111,7 +115,11 @@ export default class InputChannel extends Channel {
             this.queueGamepadFrames(gamepadFrames)
         }
 
-        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), 16)
+        // Low-power VIDAA browser: 30 Hz controller heartbeat avoids the
+        // 60 Hz JS packet churn that can overload its single-core WebView.
+        // Other clients retain the original 60 Hz cadence.
+        const interval = typeof document !== 'undefined' && document.body.classList.contains('xbridge-embedded') ? 33 : 16
+        this._pollTimer = setTimeout(this.gamepadStateLoop.bind(this), interval)
     }
 
     queueMetadataFrame(data:MetadataFrame){
