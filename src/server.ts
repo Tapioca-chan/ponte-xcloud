@@ -10,8 +10,7 @@ import {gameCard} from './catalog.mjs';
 import {saveRemember,loadRemember,revokeRemember,persistentConfigured} from './remember-store.mjs';
 const rooms=new Map<string,any>();
 // Opaque browser identity. No Microsoft passwords/tokens are sent to the TV.
-// Render's ephemeral memory means this survives page reloads but not a server restart.
-// Durable encrypted storage can be added later without weakening this contract.
+// Durable encrypted authorization is persisted in an isolated MongoDB Atlas cluster.
 const remembered=new Map<string,{user:any;token:any;host:string;lastRefresh:number;expires:number}>();
 const rememberName='xb_session';
 const rememberMaxAge=30*24*3600;
@@ -21,10 +20,10 @@ function getRememberId(req:any):string {
  return /^[0-9a-f]{48}$/.test(key)?key:'';
 }
 function setRememberCookie(res:any,id:string) {
- res.setHeader('Set-Cookie',rememberName+'='+id+'; Path=/player; Max-Age='+rememberMaxAge+'; Secure; HttpOnly; SameSite=Strict');
+ res.setHeader('Set-Cookie',rememberName+'='+id+'; Path=/player; Max-Age='+rememberMaxAge+'; Secure; HttpOnly; SameSite=Lax');
 }
 function clearRememberCookie(res:any) {
- res.setHeader('Set-Cookie',rememberName+'=; Path=/player; Max-Age=0; Secure; HttpOnly; SameSite=Strict');
+ res.setHeader('Set-Cookie',rememberName+'=; Path=/player; Max-Age=0; Secure; HttpOnly; SameSite=Lax');
 }
 function allocateRoom():any {
  const id=secret(),tvKey=secret(),phoneKey=secret();
@@ -60,15 +59,23 @@ const server=http.createServer(async(req,res)=>{
     // Only the HttpOnly first-party cookie can identify the remembered account.
     // POST + Strict SameSite prevent login CSRF from other websites.
     const key=getRememberId(req);
+    if(!key){
+     reply(res,401,{ok:false,remembered:false,reason:'cookie_missing'});
+     return;
+    }
+    if(!persistentConfigured()){
+     reply(res,503,{ok:false,reason:'storage_not_configured',retryable:true});
+     return;
+    }
     let saved=remembered.get(key);
     if(!saved && key && persistentConfigured()){
       try { const user=await loadRemember(key); if(user) saved={user,token:null,host:'',lastRefresh:0,expires:Date.now()+rememberMaxAge*1000}; }
-      catch { reply(res,503,{error:'Armazenamento da conta Xbox temporariamente indisponível. Tente novamente.'});return; }
+      catch { reply(res,503,{ok:false,reason:'storage_unavailable',retryable:true,error:'Armazenamento da conta Xbox temporariamente indisponível.'});return; }
     }
     if(!saved||saved.expires<Date.now()){
      if(key)remembered.delete(key);
      clearRememberCookie(res);
-     reply(res,401,{ok:false,remembered:false});return;
+     reply(res,401,{ok:false,remembered:false,reason:'session_not_found'});return;
     }
     // Reloaded TV tabs should not accumulate obsolete Xbox rooms.
     // One remembered browser gets one live room; close its prior transport.
@@ -92,10 +99,17 @@ const server=http.createServer(async(req,res)=>{
       saved.user=refreshed;saved.token={token:cloud.gsToken,market:cloud.market,language:'pt-BR'};
       saved.host=host.origin;saved.lastRefresh=Date.now();
       if(persistentConfigured()) await saveRemember(key,refreshed);
-     }catch{
-      remembered.delete(key);
-      // Do not destroy the persistent login on transient Microsoft failures.
-      reply(res,503,{ok:false,error:'Não foi possível renovar a conta Xbox agora. Tente novamente.'});return;
+     }catch(error){
+      // Preserve a persisted session if the upstream Microsoft/Xbox service
+      // temporarily rejects requests; never erase credentials on a 5xx.
+      const message=error instanceof Error?error.message:'';
+      const revocation=/\binvalid_grant\b|AADSTS700082|AADSTS700084|token (?:revoked|invalidated)/i.test(message);
+      console.warn('[Xbox resume]',revocation?'authorization_rejected':'refresh_unavailable');
+      reply(res,revocation?401:503,{ok:false,remembered:true,
+       reason:revocation?'authorization_rejected':'refresh_unavailable',
+       retryable:!revocation,
+       error:revocation?'A Microsoft exige uma nova autorização.':'A Microsoft não respondeu à restauração da conta. Tente novamente.'});
+      return;
      }
     }
     saved.expires=Date.now()+rememberMaxAge*1000;
@@ -161,7 +175,9 @@ const server=http.createServer(async(req,res)=>{
      const previous=getRememberId(req);if(previous){remembered.delete(previous);await revokeRemember(previous);}
      const key=secret();room.rememberKey=key;
      remembered.set(key,{user,token:room.token,host:room.host,lastRefresh:Date.now(),expires:Date.now()+rememberMaxAge*1000});
-     if(persistentConfigured()) await saveRemember(key,user);
+     if(!persistentConfigured())throw Error('Armazenamento persistente não configurado');
+     const durable=await saveRemember(key,user);
+     if(!durable)throw Error('Não foi possível salvar a autorização Xbox no banco');
      setRememberCookie(res,key);
      delete room.device;reply(res,200,{ok:true,remembered:true});return;
     }
