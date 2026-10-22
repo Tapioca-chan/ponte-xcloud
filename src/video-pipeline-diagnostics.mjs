@@ -1,7 +1,8 @@
 // Compare per-interval WebRTC counters without collecting video pixels or
 // credentials. A decoder advancing does NOT prove a TV's native plane painted.
 // Optional freeze counters may be absent from older VIDAA Chromium builds.
-const safeCount=value=>Number.isFinite(Number(value)) && Number(value)>=0?Number(value):null;
+const safeCount=value=>value===null||value===undefined||value===''?null:
+  Number.isFinite(Number(value)) && Number(value)>=0?Number(value):null;
 export function inspectVideoPipeline(previous,current){
  const decoded=safeCount(current?.decoded);
  const received=safeCount(current?.received);
