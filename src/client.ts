@@ -12,6 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './metro-native-plane-autorepair.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -105,6 +106,7 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   manual:reason==='manual',now:Date.now(),
   lastSoftAt:lastSoftRecoveryAt,lastSoftFreezeCount,
   freezeCount:currentVideoFreezeCount,
+  compatibilityEscalation:kind==='metro-opaque-escalation',
   signalStrong:kind==='decode-stall'||kind==='presentation-stall'||kind==='audio-active-video-stalled',
   visualFrozen:kind==='visual-still'
  });
@@ -369,6 +371,47 @@ function startVideoHealth(){
     metroLastRecoveryAt=now;
     status('VIDAA: espera de vídeo prolongada após uma transição. Recuperando a imagem…');
     await recoverXboxVideoLocally('automatic','browser-waiting');
+    visualWatchdog?.reset();
+   }
+   // The screenshot evidence on this Toshiba is: freezeCount>=1, decoded
+   // frames keep moving, canvas and compositor are opaque, but pressing
+   // Recuperar imagem (srcObject rebind) restores the visible picture.
+   // A soft recovery can resolve most cases, but HTMLMediaElement.play()
+   // cannot confirm that VIDAA painted a frame. One bounded, optional
+   // strong escalation follows when visibility remains unobservable.
+   let opaqueRepairEnabled=true;
+   try{opaqueRepairEnabled=localStorage.getItem('xbridge:metro-opaque-autorepair')!=='false';}catch(_){}
+   const opaqueRepair={
+    title:launchedStreamingTitle,
+    nativePlaneUnobservable:nativeBlind,
+    firstVideoAt:nativePlaneFirstVideoAt,now,
+    freezeCount:sample.freezeCount,
+    hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
+    connection:effectiveState,overlayOpen:gameOverlayOpen,
+    recoveryBusy:videoRecoveryInFlight,enabled:opaqueRepairEnabled,
+    lastManualRecoveryAt,attempts:metroRecoveryAttempts,
+    lastSoftRecoveryAt
+   };
+   const doSoft=shouldStartMetroOpaqueRepair(opaqueRepair);
+   const doStrong=shouldEscalateMetroOpaqueRepair(opaqueRepair);
+   if(doSoft || doStrong){
+    // No Game Pass advertisement skipping, no Xbox session restart, no
+    // controller presses. Reconnect the DOM media element only once maximum.
+    const stage=doStrong?'strong':'soft';
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+    queuedMetroIntroRecovery=false;
+    const kind=doStrong?'metro-opaque-escalation':'metro-opaque-startup';
+    notifyParent({type:'xbridge-metro-compat-action',
+      stage,attempt:metroRecoveryAttempts});
+    status(doStrong
+      ?'Metro/VIDAA: último recurso, recriando o vídeo sem reiniciar o jogo…'
+      :'Metro/VIDAA: iniciando recuperação leve do vídeo…');
+    const recovered=await recoverXboxVideoLocally('automatic',kind);
+    if(!recovered){
+     notifyParent({type:'xbridge-metro-compat-action',stage:'failed',
+       attempt:metroRecoveryAttempts});
+    }
     visualWatchdog?.reset();
    }
    // Experimental fallback ONLY for Metro on unreadable native VIDAA planes.
