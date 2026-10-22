@@ -277,6 +277,13 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     try{
       const data=await api('verify');
       if(data.ok)await finishAuth();
+      else if(data.remembered===true && data.reason==='cloud_unavailable'){
+        // Microsoft consent was valid and encrypted credentials are already
+        // saved. Reload to use the normal resume flow, not another QR code.
+        authInfo('Conta Microsoft salva. Restaurando sua sessão Xbox…');
+        stopPolling();
+        window.location.reload();
+      }
     }catch(_){
       if(!authorized)authInfo('Aguardando sua confirmação na página Microsoft…');
     }finally{authPolling=false;}
