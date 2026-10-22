@@ -170,7 +170,28 @@ $('play').onclick=async()=>{
    await pause(2000);
   }
   if(!ready)throw Error('O Xbox não concluiu o preparo do jogo.');
-  phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
+  await connectExistingXboxSession(announce);
+ }catch(e:any){
+  const message=String(e?.message||'Erro desconhecido').slice(0,180);
+  const detail='Não foi possível iniciar o jogo ['+phase+']: '+message;
+  announce(detail);
+  notifyParent({type:'xbridge-player-error',message:detail});
+  clearInterval(keepalive);stopVideoHealth();
+  try{player?.destroy()}catch(_){}
+  player=undefined;
+  try{await api('reset')}catch(_){}
+  started=false;
+  $('play').disabled=false;
+ }
+};
+$('fullscreen').onclick=run(()=> $('playerContainer').requestFullscreen());
+$('sound').onclick=run(async()=>{for(const el of document.querySelectorAll('video,audio'))await(el as HTMLMediaElement).play();});
+$('stop').onclick=run(async()=>{clearInterval(keepalive);stopVideoHealth();player?.destroy();ws?.close();await api('close');location.hash='';location.reload();});
+// Reuse the identical Xbox media connection handshake for both initial
+// playback and manual *same-session* reconnection. Never call /api/start,
+// /api/reset, or account logout when renegotiating an existing Xbox session.
+async function connectExistingXboxSession(announce:(message:string)=>void){
+  let phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
   player=new Player('playerContainer');
   // Compatibility experiment is scoped to Metro Exodus, whose official
   // browser stream launches while the independent client stalls at its intro.
@@ -261,22 +282,35 @@ $('play').onclick=async()=>{
   announce('Conexão negociada. Aguardando imagem do jogo…');
   startVideoHealth();
   keepalive=setInterval(()=>api('keepalive').catch(()=>announce('Falha ao manter a sessão Xbox ativa.')),30000);
- }catch(e:any){
-  const message=String(e?.message||'Erro desconhecido').slice(0,180);
-  const detail='Não foi possível iniciar o jogo ['+phase+']: '+message;
-  announce(detail);
-  notifyParent({type:'xbridge-player-error',message:detail});
-  clearInterval(keepalive);stopVideoHealth();
-  try{player?.destroy()}catch(_){}
+}
+let reconnectingMedia=false;
+async function reconnectXboxMediaWithoutRestart(){
+ if(reconnectingMedia){status('A reconexão já está em andamento.');return}
+ if(!started){status('Inicie o jogo antes de reconectar a transmissão.');return}
+ reconnectingMedia=true;
+ const tell=(message:string)=>{status(message);const el=document.getElementById('xb-launch-status');if(el)el.textContent=message;};
+ try{
+  tell('Reconectando somente o vídeo do Xbox, mantendo a mesma partida…');
+  clearInterval(keepalive);
+  stopVideoHealth();
+  const previous=player;
   player=undefined;
-  try{await api('reset')}catch(_){}
-  started=false;
-  $('play').disabled=false;
- }
-};
-$('fullscreen').onclick=run(()=> $('playerContainer').requestFullscreen());
-$('sound').onclick=run(async()=>{for(const el of document.querySelectorAll('video,audio'))await(el as HTMLMediaElement).play();});
-$('stop').onclick=run(async()=>{clearInterval(keepalive);stopVideoHealth();player?.destroy();ws?.close();await api('close');location.hash='';location.reload();});
+  try{previous?.destroy()}catch(_){}
+  // The old player will emit disconnected; this is expected during an
+  // explicit reconnection, and the video surface is restored on first frame.
+  document.body.classList.remove('stream-playing');
+  notifyParent({type:'xbridge-playing',playing:false});
+  await pause(250);
+  await connectExistingXboxSession(tell);
+  tell('Transmissão reconectada à mesma partida. Aguardando imagem…');
+ }catch(e:any){
+  // An SDP renegotiation can be rejected by the Xbox service. Do not
+  // automatically delete its session or refresh Microsoft credentials.
+  const message='Xbox recusou reconectar esta transmissão: '+String(e?.message||'erro desconhecido').slice(0,135);
+  tell(message);
+  notifyParent({type:'xbridge-player-error',message});
+ }finally{reconnectingMedia=false}
+}
 function advance(){calStep++;calWaiting=Date.now()+700;previous=null;baseAxes=[];if(calStep>=fields.length){calStep=-1;localStorage.setItem(mappingKey,JSON.stringify(map));$('calibration').textContent='Mapeamento salvo neste celular.';$('skip').hidden=true;}else $('calibration').textContent='Solte os comandos e depois acione: '+fields[calStep]+(axes.includes(fields[calStep])?' (mova para direita ou para baixo)':'');}
 $('calibrate').onclick=()=>{map={};calStep=-1;advance();$('skip').hidden=false;};$('skip').onclick=advance;
 function poll(){
@@ -381,6 +415,10 @@ if (embedded) {
     $('play').disabled=false;
     status('Pronto para escolher outro jogo. Conta Xbox mantida.');
    })();
+  } else if(event.data?.type==='xbridge-reconnect-media'){
+   // Explicit user action: preserve Xbox account and game session, only
+   // renegotiate WebRTC offer/ICE to emulate returning to the same game.
+   void reconnectXboxMediaWithoutRestart();
   } else if(event.data?.type==='xbridge-recover-video'){
    // Explicit user recovery, not automatic: rebind the existing video stream
    // without restarting the Xbox session, then request a fresh keyframe.
