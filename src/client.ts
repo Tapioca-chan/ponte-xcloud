@@ -182,14 +182,29 @@ if (embedded) {
   } else if(event.data?.type==='xbridge-release'){
    frame=sanitize({});lastFrame=0;$('remote').textContent='Aguardando comandos do celular';
   } else if(event.data?.type==='xbridge-game-menu') {
-   // Return to the catalog WITHOUT revoking the Microsoft login.
-   // Close the streaming session to prevent invisible playback on low-end TVs.
-   document.body.classList.remove('stream-playing');
-   notifyParent({type:'xbridge-playing',playing:false});
-   try{clearInterval(keepalive);player?.destroy();player=undefined;}catch(_){}
-   if(started){void api('reset').catch(()=>status('Não foi possível encerrar a partida na nuvem.'));}
-   started=false;$('play').disabled=false;
-   status('Partida encerrada. Escolha outro jogo ou retome pelo catálogo.');
+   // Return to catalog WITHOUT losing the Xbox account cookie.
+   // Await reset before enabling another title; avoids concurrent Xbox sessions.
+   void (async()=>{
+    document.body.classList.remove('stream-playing');
+    notifyParent({type:'xbridge-playing',playing:false});
+    clearInterval(keepalive);
+    try{player?.destroy();player=undefined;}catch(_){}
+    $('play').disabled=true;
+    status('Encerrando partida atual no Xbox…');
+    try{await api('reset')}catch(_){status('Não foi possível encerrar a partida no Xbox.')}
+    started=false;
+    $('play').disabled=false;
+    status('Pronto para escolher outro jogo. Conta Xbox mantida.');
+   })();
+  } else if(event.data?.type==='xbridge-resume-media'){
+   // A user gesture in the TV settings may unlock media on VIDAA.
+   void (async()=>{
+    let resumed=false;
+    for(const element of document.querySelectorAll('video,audio')){
+     try{await (element as HTMLMediaElement).play();resumed=true}catch(_){}
+    }
+    status(resumed?'Reprodução solicitada.':'O navegador bloqueou a reprodução. Tente iniciar o vídeo pelo controle da TV.');
+   })();
   }
  });
  document.addEventListener('playing',event=>{
