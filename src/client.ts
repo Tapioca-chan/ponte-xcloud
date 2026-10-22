@@ -6,6 +6,7 @@ import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
 import {needsXboxDialogCompatibility} from './game-compat.mjs';
 import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVideoStall} from './video-freeze-watchdog.mjs';
+import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -19,6 +20,7 @@ let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoS
 let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
+let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 // Track each link of Android -> WebRTC gamepad delivery without recording button
 // sequences, Xbox tokens, or session identifiers.
 const inputDebug={androidFrames:0,aPresses:0,gamepadPacketsSent:0,lastAndroidAt:0,lastAAt:0};
@@ -45,6 +47,7 @@ function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  visualWatchdog=null;visualSampleCanvas=null;
+ nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -149,6 +152,7 @@ function startVideoHealth(){
     videoHeight:Number(inbound.frameHeight)||0,
     connection:peer.connectionState
    };
+   const previousDecoded=Number(healthPrevious?.decoded)||0;
    const result=classifyStreamHealth(healthPrevious,sample,6);
    // Video-specific stalls may hide from the native VIDAA visual sampler,
    // but audio packets prove that the wider cloud stream is still alive.
@@ -174,10 +178,23 @@ function startVideoHealth(){
     received:sample.received,recentInput:now-lastMeaningfulGamepadAt<20000,
     connection:sample.connection,videoReadyState:sample.videoReadyState
    });
+   // This VIDAA TV reports advancing decode counters but cannot expose the
+   // native video plane to canvas or compositor callbacks. That makes a real
+   // visual freeze unobservable. Keep a separate, clearly labelled preventive
+   // compatibility refresh rather than falsely claiming freeze detection.
+   if(sample.videoReadyState>=2 && sample.decoded>0 && !nativePlaneFirstVideoAt)nativePlaneFirstVideoAt=now;
+   const nativeBlind=(visual?.status==='visual-unavailable' && sample.presented===null);
+   nativeUnreadableSamples=nativeBlind?nativeUnreadableSamples+1:0;
    notifyParent({type:'xbridge-freeze-diagnostics',
     visualStatus:visual?.status||'unavailable',
     visualStillMs:Math.round(visual?.ageMs||0),
-    signalStatus:result.kind
+    signalStatus:result.kind,
+    nativeBlindMetro:Boolean(nativeBlind && /\\bmetro\\s+exodus\\b/i.test(launchedStreamingTitle)),
+    nativeBlindNextSec:nativeBlind&&nativePlaneFirstVideoAt?
+     Math.max(0,Math.ceil(((metroRecoveryAttempts>0?
+      Math.max(nativePlaneFirstVideoAt+120000,metroLastRecoveryAt+240000):
+      nativePlaneFirstVideoAt+120000)-now)/1000)):null,
+    nativeBlindAttempts:metroRecoveryAttempts
    });
    // Run on evidence only: no timed repair during Xbox's free ad.
    const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
@@ -207,6 +224,29 @@ function startVideoHealth(){
     audioVideoStallChecks=0;
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
      visualStatus:'recovery-failed',signalStatus:kind});
+   }
+   // Experimental fallback ONLY for Metro on unreadable native VIDAA planes.
+   // We cannot detect the picture freezing when decoded frames still advance.
+   // Rebind sparingly as maintenance, after a generous free-tier ad grace.
+   let nativeRefreshEnabled=true;
+   try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')!=='false';}catch(_){}
+   if(shouldPerformBlindMetroRefresh({
+    title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
+    now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
+    lastAttemptAt:metroLastRecoveryAt,lastManualAt:lastManualRecoveryAt,
+    unreadableSamples:nativeUnreadableSamples,
+    decodedAdvancing:sample.decoded>previousDecoded,
+    hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
+    connection:effectiveState,overlayOpen:gameOverlayOpen,inFlight:videoRecoveryInFlight
+   })){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+    notifyParent({type:'xbridge-freeze-diagnostics',
+      visualStatus:'preventive-refresh',visualStillMs:0,
+      nativeBlindAttempts:metroRecoveryAttempts,signalStatus:result.kind});
+    status('VIDAA: manutenção preventiva do vídeo do Metro, sem reiniciar o jogo…');
+    await recoverXboxVideoLocally('automatic','native-plane-preventive');
+    visualWatchdog?.reset();
    }
   }catch(_){
    notifyParent({type:'xbridge-video-health',message:'Estatísticas de vídeo não disponíveis no VIDAA',kind:'unknown'});
@@ -324,6 +364,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   launchedStreamingTitle=launchedName;
   metroRecoveryAttempts=0;
   metroLastRecoveryAt=0;
+  lastManualRecoveryAt=0;
   const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   player.init();
@@ -550,6 +591,8 @@ if (embedded) {
     $('play').disabled=false;
     status('Pronto para escolher outro jogo. Conta Xbox mantida.');
    })();
+  } else if(event.data?.type==='xbridge-overlay-state'){
+   gameOverlayOpen=event.data.open===true;
   } else if(event.data?.type==='xbridge-reannounce-gamepad'){
    // Reannounce the existing virtual controller without detaching it.
    // Deliberately never fake A/Start/Menu input to advance a game.
@@ -565,8 +608,9 @@ if (embedded) {
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
   } else if(event.data?.type==='xbridge-recover-video'){
-   // Reset the visual baseline after a user-triggered video repair.
+   // Reset the visual baseline and delay optional maintenance after manual use.
    visualWatchdog?.reset();
+   lastManualRecoveryAt=Date.now();
    // The manual action remains available even if automated diagnostics cannot
    // measure the video frame compositor on this version of VIDAA.
    void recoverXboxVideoLocally('manual');
