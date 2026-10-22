@@ -34,7 +34,9 @@ export function gameCard(title, product) {
     description: String(p.ProductDescription || '').slice(0, 380),
     genre: genre.slice(0, 90),
     publisher: String(p.PublisherName || '').slice(0, 80),
-    accessible: d.hasEntitlement !== false,
+    // A cloud entitlement may come from Game Pass or a purchase. It DOES NOT
+    // prove permanent ownership. Missing entitlement information is unknown.
+    accessible: typeof d.hasEntitlement === 'boolean' ? d.hasEntitlement : null,
     controller: Array.isArray(d.supportedInputTypes)
       ? d.supportedInputTypes.some(x => /controller|gamepad/i.test(String(x))) : true
   };
