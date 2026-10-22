@@ -70,8 +70,20 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   media.pause();
   media.srcObject=null;
   media.srcObject=stream;
-  await media.play().catch(()=>{});
+  let playRejected=false;
+  await Promise.race([
+   Promise.resolve(media.play()).catch(()=>{playRejected=true}),
+   new Promise(resolve=>setTimeout(resolve,2500))
+  ]);
   if(player!==activePlayer)return false;
+  // Earlier code swallowed blocked autoplay and falsely reported success.
+  if(playRejected||media.paused){
+   if(reason==='automatic'){
+    status('Metro Exodus: o VIDAA bloqueou a retomada automática. Use Recuperar imagem no menu.');
+    notifyParent({type:'xbridge-metro-recovery',step:'gesture-required',kind});
+   } else status('O VIDAA bloqueou o vídeo. Use o controle físico da TV para ativar a reprodução.');
+   return false;
+  }
   try{activePlayer?._channels?.control?.requestKeyframeRequest(true)}catch(_){}
   healthPrevious=null;
   freezeChecks=0;
@@ -102,26 +114,32 @@ function startVideoHealth(){
    const now=Date.now();
    if(!metroVideoReadyAt)metroVideoReadyAt=now;
    const age=now-metroVideoReadyAt;
-   if(age>60000){
+   if(age>45000){
     if(metroBootTimer)clearInterval(metroBootTimer);
     metroBootTimer=null;
     return;
    }
+   const rtc=activePlayer._peerConnection;
+   const rtcState=rtc?.connectionState||rtc?.iceConnectionState||'unknown';
+   // Older VIDAA builds may report "connecting" while video is already ready.
+   const state=(rtcState==='failed'||rtcState==='closed'||rtcState==='disconnected')
+    ?rtcState:(video.readyState>=2?'connected':rtcState);
    if(!shouldNudgeMetroBoot({
     title:launchedStreamingTitle,
     videoAgeMs:age,
     lastInputAgoMs:now-lastMeaningfulGamepadAt,
     alreadyNudged:metroBootNudged || metroRecoveryAttempts>0,
-    hasVideo:true,
-    connection:activePlayer._peerConnection?.connectionState,
+    hasVideo:video.readyState>=2,
+    connection:state,
     recoveryBusy:videoRecoveryInFlight
    }))return;
    metroBootNudged=true;
-   const recovered=await recoverXboxVideoLocally('automatic','boot-nudge');
-   if(recovered){
-    metroRecoveryAttempts++;
-    metroLastRecoveryAt=now;
-   }
+   metroRecoveryAttempts++;
+   metroLastRecoveryAt=now;
+   // Same video-only recovery as the manual button, once during startup.
+   await recoverXboxVideoLocally('automatic','boot-nudge');
+   if(metroBootTimer)clearInterval(metroBootTimer);
+   metroBootTimer=null;
   },2000);
  }
  videoHealthTimer=setInterval(async()=>{
