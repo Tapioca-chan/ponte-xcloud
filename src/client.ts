@@ -4,6 +4,7 @@ import {serializeLocalIceCandidates} from './ice-bridge.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
+import {needsXboxDialogCompatibility} from './game-compat.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -175,7 +176,7 @@ $('play').onclick=async()=>{
   // browser stream launches while the independent client stalls at its intro.
   // Marvel Rivals and other working games retain their existing handshake.
   const launchedName=String($('games').selectedOptions?.[0]?.textContent||'');
-  const metroSystemDialogCompat=/metro\s+exodus/i.test(launchedName);
+  const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   player.init();
   if(metroSystemDialogCompat)announce('Metro Exodus: monitorando possíveis confirmações Xbox.');
