@@ -2,7 +2,7 @@
 // This is not an embedded xbox.com page and never displays invented games.
 export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handlers}) {
   const $ = id => document.getElementById(id);
-  $('tv').innerHTML = \`
+  $('tv').innerHTML = `
     <div class="xb-console">
       <div class="xb-app-top">
         <div class="xb-brand"><span class="xb-brand-orbit" aria-hidden="true">✕</span>
@@ -71,7 +71,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
           <button id="embed-stop" class="xb-button xb-button-danger">Encerrar sessão</button>
         </div>
       </div>
-    </div>\`;
+    </div>`;
   // Preserve the real game streaming handlers, never simulate a successful session.
   for (const id of ['play','sound','fullscreen','stop']) {
     const element=$(id);
@@ -201,7 +201,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       if(!data||typeof data.user_code!=='string')throw Error('A Microsoft não retornou um código.');
       authUri=allowOfficialLink(data.verification_uri);
       $('code').textContent=data.user_code;
-      const link=$('xb-ms-link');link.href=authUri;link.textContent=new URL(authUri).hostname+'/link ↗';
+      const link=$('xb-ms-link');link.href=authUri;link.textContent=new URL(authUri).hostname+new URL(authUri).pathname+' ↗';
       show('xb-authorization',true);
       try{await QRCode.toCanvas($('xb-ms-qr'),authUri,{width:176,margin:1,color:{dark:'#07130e',light:'#ffffff'}})}
       catch(_){$('xb-ms-qr').hidden=true}
