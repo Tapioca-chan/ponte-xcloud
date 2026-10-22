@@ -45,29 +45,91 @@ $('verify').onclick=run(async()=>{status('Verificando autorização…');await a
 let titleList:any[]=[];
 $('titles').onclick=run(async()=>{const data=await api('titles');titleList=data.results||data.titles||[];if(!Array.isArray(titleList)||!titleList.length)throw Error('Catálogo vazio ou formato não reconhecido');$('games').textContent='';for(const t of titleList){const o=document.createElement('option');o.value=t.titleId||t.id;o.textContent=t.details?.title||t.title||t.titleId||t.id;$('games').appendChild(o);}$('play').disabled=false;status(titleList.length+' jogos recebidos.');});
 const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
-$('play').onclick=run(async()=>{
- if(started)throw Error('Uma sessão já foi solicitada. Encerre a sala para trocar o jogo.');
- if(typeof RTCPeerConnection==='undefined')throw Error('Este navegador não disponibiliza WebRTC.');
- started=true;$('play').disabled=true;await api('start',{id:$('games').value});status('Aguardando provisionamento do jogo…');
- let ready=false;for(let n=0;n<300;n++){const s=await api('state');status('Sessão Xbox: '+s.state);if(s.state==='Provisioned'){ready=true;break;}if(s.state==='Failed')throw Error('O serviço recusou a sessão');if(s.state==='ReadyToConnect')await api('connect');await pause(2000);}
- if(!ready)throw Error('Tempo de espera excedido. Encerre a sala para tentar novamente.');
- player=new Player('playerContainer');player.init();
- const channel=player._channels.control;
- // Register after the service's initial add/remove handshake; never use the TV's Gamepad API.
- const original=channel.sendAuthorization.bind(channel);channel.sendAuthorization=()=>{
-  original();
-  channel.sendGamepadState(0,true,{getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),handleVibration:()=>{},detach:()=>{}});
-  notifyParent({type:'xbridge-control-ready'});
+// The TV receives status updates even if the Xbox rejects the session.
+// The previous handler permanently set started=true after its first failure.
+$('play').onclick=async()=>{
+ if(started){status('Já existe uma tentativa em andamento.');return}
+ started=true;
+ $('play').disabled=true;
+ let phase='verificação';
+ const announce=(message:string)=>{status(message); const el=document.getElementById('xb-launch-status');if(el)el.textContent=message;};
+ try{
+  if(typeof RTCPeerConnection==='undefined')throw Error('Este navegador não oferece WebRTC.');
+  if(!$('games').value)throw Error('Selecione um jogo da biblioteca antes de jogar.');
+  phase='start';announce('Solicitando o jogo aos servidores Xbox…');
+  await api('start',{id:$('games').value});
+  phase='state';announce('Aguardando o Xbox preparar o jogo…');
+  let ready=false,connectedToXbox=false,lastState='';
+  for(let n=0;n<90;n++){
+   const s=await api('state');
+   const state=typeof s.state==='string'?s.state:'Aguardando';
+   if(state!==lastState){lastState=state;announce('Xbox: '+state);}
+   if(state==='Provisioned'){ready=true;break}
+   if(state==='Failed'){
+    const code=String(s.errorDetails?.code||'desconhecido').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,48);
+    throw Error('O Xbox recusou a sessão (código '+code+').');
+   }
+   if(state==='ReadyToConnect'&&!connectedToXbox){
+    phase='connect';announce('Autenticando o jogo nos servidores Xbox…');
+    await api('connect');connectedToXbox=true;
+    phase='state';
+   }
+   await pause(2000);
+  }
+  if(!ready)throw Error('O Xbox não concluiu o preparo do jogo.');
+  phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
+  player=new Player('playerContainer');player.init();
+  const channel=player._channels.control;
+  const original=channel.sendAuthorization.bind(channel);
+  channel.sendAuthorization=()=>{
+   original();
+   channel.sendGamepadState(0,true,{
+    getGamepadState:()=>Date.now()-lastFrame<400?frame:sanitize({}),
+    handleVibration:()=>{},detach:()=>{}
+   });
+   notifyParent({type:'xbridge-control-ready'});
+  };
+  player._peerConnection.addEventListener('connectionstatechange',()=>{
+   const state=player._peerConnection.connectionState;
+   announce('Conexão de vídeo: '+state);
+   if(state==='failed'||state==='disconnected'||state==='closed'){
+    document.body.classList.remove('stream-playing');
+    notifyParent({type:'xbridge-playing',playing:false});
+   }
+  });
+  phase='sdp';announce('Negociando áudio e vídeo com o Xbox…');
+  const offer=await player.createOffer();
+  const answer=await api('sdp',{offer});
+  const remoteSdp=JSON.parse(answer.exchangeResponse||'{}');
+  if(typeof remoteSdp.sdp!=='string')throw Error('O Xbox não retornou a resposta de vídeo esperada.');
+  await player.setRemoteSDP(remoteSdp.sdp);
+  phase='ice';announce('Estabelecendo conexão de rede com o Xbox…');
+  // Allow the ICE agent time to expose candidate addresses on slower TVs.
+  const rtc=player._peerConnection;
+  for(let i=0;i<15&&rtc.iceGatheringState!=='complete';i++)await pause(200);
+  const candidates=player.getICECandidates().map((c:any)=>JSON.stringify({
+   candidate:c.candidate,sdpMid:c.sdpMid,sdpMLineIndex:c.sdpMLineIndex,usernameFragment:c.usernameFragment
+  }));
+  const remote=await api('ice',{candidates});
+  const parsed=JSON.parse(remote.exchangeResponse||'[]');
+  const remoteCandidates=Array.isArray(parsed)?parsed:Array.isArray(parsed.candidates)?parsed.candidates:parsed.iceCandidates;
+  if(!Array.isArray(remoteCandidates))throw Error('O Xbox retornou candidatos de rede em formato desconhecido.');
+  await player.setRemoteIceCandidates(remoteCandidates);
+  announce('Conexão negociada. Aguardando imagem do jogo…');
+  keepalive=setInterval(()=>api('keepalive').catch(()=>announce('Falha ao manter a sessão Xbox ativa.')),30000);
+ }catch(e:any){
+  const message=String(e?.message||'Erro desconhecido').slice(0,180);
+  const detail='Não foi possível iniciar o jogo ['+phase+']: '+message;
+  announce(detail);
+  notifyParent({type:'xbridge-player-error',message:detail});
+  clearInterval(keepalive);
+  try{player?.destroy()}catch(_){}
+  player=undefined;
+  try{await api('reset')}catch(_){}
+  started=false;
+  $('play').disabled=false;
+ }
 };
- player._peerConnection.addEventListener('connectionstatechange',()=>{
- const state=player._peerConnection.connectionState; status('Transmissão: '+state);
- if(state==='failed'||state==='disconnected'||state==='closed'){document.body.classList.remove('stream-playing');notifyParent({type:'xbridge-playing',playing:false});}
- });
- const offer=await player.createOffer();const answer=await api('sdp',{offer});await player.setRemoteSDP(JSON.parse(answer.exchangeResponse).sdp);
- const local=await player.getICECandidates();const candidates=local.map((c:any)=>JSON.stringify({candidate:c.candidate,sdpMid:c.sdpMid,sdpMLineIndex:c.sdpMLineIndex,usernameFragment:c.usernameFragment}));
- const remote=await api('ice',{candidates});await player.setRemoteIceCandidates(JSON.parse(remote.exchangeResponse));
- keepalive=setInterval(()=>api('keepalive').catch(()=>status('Falha ao manter a sessão.')),30000);
-});
 $('fullscreen').onclick=run(()=> $('playerContainer').requestFullscreen());
 $('sound').onclick=run(async()=>{for(const el of document.querySelectorAll('video,audio'))await(el as HTMLMediaElement).play();});
 $('stop').onclick=run(async()=>{clearInterval(keepalive);player?.destroy();ws?.close();await api('close');location.hash='';location.reload();});
