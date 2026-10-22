@@ -33,15 +33,46 @@ export default class VideoComponent {
             // Ordinary standalone player remains supported.
         }
         const videoElement = renderDocument.createElement('video')
-        videoElement.srcObject = stream
+        // Prepare Metro's native VIDAA video plane BEFORE setting srcObject.
+        // Initial media attachment can allocate the hardware/software plane
+        // at whatever layout size is present on the first frame. Late physical
+        // resizing after the xCloud preroll can leave a stale visible plane.
+        // This never detaches a frame or modifies Microsoft/Xbox handshakes.
+        const metroPreflight = topLevel && Boolean((this._player as any).__xbridgeShowMessageDialogs)
+        if(!metroPreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
         videoElement.playsInline = true
+        videoElement.setAttribute('playsinline','')
+        videoElement.setAttribute('webkit-playsinline','')
         videoElement.style.width = '100%'
         videoElement.style.height = '100%'
         videoElement.style.objectFit = 'contain'
         videoElement.style.backgroundColor = 'black'
         videoElement.style.touchAction = 'none'
+        if(metroPreflight) {
+            // Match the parent's already working VIDAA physical-plane mode
+            // before its native decoder ever sees the WebRTC MediaStream.
+            try {
+                const root=window.parent
+                const viewportW=Math.max(1,root.innerWidth)
+                const viewportH=Math.max(1,root.innerHeight)
+                const screenW=Number(root.screen?.width)||viewportW
+                const screenH=Number(root.screen?.height)||viewportH
+                const scaleMode=root.localStorage.getItem('xbridge:video-plane-scale')||'physical'
+                const physical=scaleMode==='physical'&&screenW/viewportW>1.05&&screenH/viewportH>1.05
+                videoElement.style.setProperty('display','block','important')
+                videoElement.style.setProperty('position','absolute','important')
+                videoElement.style.setProperty('top','0','important')
+                videoElement.style.setProperty('left','0','important')
+                videoElement.style.setProperty('width',physical?Math.round(screenW)+'px':'100%','important')
+                videoElement.style.setProperty('height',physical?Math.round(screenH)+'px':'100%','important')
+                videoElement.style.setProperty('max-width','none','important')
+                videoElement.style.setProperty('max-height','none','important')
+                videoElement.style.setProperty('object-fit','contain','important')
+                videoElement.style.setProperty('object-position','left top','important')
+            } catch (_) {}
+        }
         // Presentation counter is updated by the browser's compositor callback,
         // not by RTP decode statistics. No DOM repaint is needed per frame.
         ;(videoElement as HTMLVideoElement & {__xbridgePresentedFrames?:number}).__xbridgePresentedFrames=0
@@ -82,12 +113,17 @@ export default class VideoComponent {
             force(videoElement,'display','block')
             force(videoElement,'position','absolute')
             force(videoElement,'inset','0')
-            force(videoElement,'width','100%')
-            force(videoElement,'height','100%')
+            // Do not overwrite Metro's preallocated native-plane geometry on
+            // the first decoded frame. The TV parent owns sizing throughout
+            // ad -> game transitions and may be 1920x1080 in a 1280x720 DOM.
+            if(!metroPreflight) {
+                force(videoElement,'width','100%')
+                force(videoElement,'height','100%')
+                force(videoElement,'object-position','center center')
+            }
             force(videoElement,'max-height','none')
             force(videoElement,'max-width','none')
             force(videoElement,'object-fit','contain')
-            force(videoElement,'object-position','center center')
             document.body.classList.add('stream-playing')
             try {
                 if (window.parent !== window && location.origin === window.parent.location.origin) {
@@ -113,6 +149,15 @@ export default class VideoComponent {
             } catch (_) {}
         })
         element.appendChild(this._element)
+        if(metroPreflight){
+            // Parent element and full-size CSS are now ready; only *now*
+            // create the stream-to-native-decoder binding on older VIDAA.
+            this._element.srcObject=stream
+            try {
+                window.parent.postMessage({type:'xbridge-video-prepared',
+                    topLevel:true,prebound:true},location.origin)
+            } catch (_) {}
+        }
         // CSS pixels and the native video decoder can use different viewports
         // on VIDAA. Report geometry after the React parent expands the section,
         // to distinguish a small DOM box from an unscaled native video plane.
