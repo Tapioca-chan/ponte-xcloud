@@ -51,12 +51,20 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
               <button id="embed-play" class="xb-button xb-button-primary" disabled>▶ Jogar agora</button>
               <span id="xb-hero-source">Biblioteca carregada da Microsoft</span>
             </div>
+            <p id="xb-game-access" class="xb-game-access">O acesso será verificado quando escolher um jogo.</p>
+            <p id="xb-launch-status" class="xb-launch-status" role="status" aria-live="polite"></p>
           </div>
         </div>
         <div class="xb-library-heading">
-          <div><div class="xb-label">SUA BIBLIOTECA</div><h2>Jogos na nuvem</h2></div>
+          <div><div class="xb-label">JOGOS NA NUVEM</div><h2>Xbox Cloud Gaming</h2></div>
           <div class="xb-library-tools"><input id="xb-game-search" type="search" autocomplete="off" placeholder="Pesquisar nos jogos carregados…" aria-label="Pesquisar jogos"/><button id="embed-titles" class="xb-button xb-button-muted" type="button">Atualizar</button></div>
         </div>
+        <div class="xb-library-filters">
+          <button id="xb-filter-cloud" class="xb-filter is-active" type="button">Catálogo na nuvem</button>
+          <button id="xb-filter-access" class="xb-filter" type="button">Com acesso na conta</button>
+          <button id="xb-filter-recent" class="xb-filter" type="button">Jogados recentemente</button>
+        </div>
+        <p class="xb-library-notice">O catálogo na nuvem não é a lista de compras da sua conta. “Com acesso” pode incluir jogos por assinatura Game Pass, não apenas os que você comprou. Títulos adquiridos sem suporte ao Xbox Cloud Gaming não aparecem aqui.</p>
         <div id="xb-results-count" class="xb-results-count">Carregando títulos reais do Xbox…</div>
         <div id="xb-games-grid" class="xb-games-grid" role="group" aria-label="Jogos disponíveis"></div>
         <div class="xb-catalog-bottom"><button id="xb-more" class="xb-button xb-button-muted" type="button" hidden>Carregar mais jogos ↓</button></div>
@@ -90,7 +98,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   }
   $('fullscreen').onclick=()=>notifyParent({type:'xbridge-fullscreen'});
   let authorized=false, authPolling=false, authTimer=0, authDeadline=0, authUri='', canAsk=false;
-  let currentGames=[], nextOffset=0, loading=false, selectedId='', currentSearch='';
+  let currentGames=[], recentGames=[], nextOffset=0, loading=false, selectedId='', currentSearch='', activeFilter='cloud';
   function show(id, visible) { const el=$(id); if(el)el.hidden=!visible; }
   function authInfo(message){$('xb-auth-state').textContent=message;$('xb-login-feedback').textContent=message;}
   function allowOfficialLink(input) {
@@ -118,7 +126,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         currentGames.push(game);
       }
       nextOffset=typeof result.next==='number'?result.next:null;
-      show('xb-more',nextOffset!==null);
+      show('xb-more',activeFilter==='cloud'&&nextOffset!==null);
       displayGames();
       if(!selectedId&&currentGames.length)selectGame(currentGames[0].titleId);
       if(!currentGames.length)$('xb-results-count').textContent='Nenhum jogo disponível foi retornado pela Microsoft nesta conta.';
@@ -140,7 +148,9 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     const q=currentSearch.trim().toLocaleLowerCase('pt-BR');
     const grid=$('xb-games-grid');
     grid.replaceChildren();
-    const results=currentGames.filter(g=>!q||String(g.name||g.titleId).toLocaleLowerCase('pt-BR').includes(q));
+    const source=activeFilter==='recent'?recentGames:
+      activeFilter==='access'?currentGames.filter(g=>g.accessible===true):currentGames;
+    const results=source.filter(g=>!q||String(g.name||g.titleId).toLocaleLowerCase('pt-BR').includes(q));
     const fragment=document.createDocumentFragment();
     for (const game of results){
       const button=document.createElement('button');
@@ -158,16 +168,22 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         fallback.className='xb-art-initial';art.appendChild(fallback);
       }
       const label=document.createElement('div');label.className='xb-card-name';label.textContent=String(game.name||game.titleId);
-      const tag=document.createElement('small');tag.className='xb-card-sub';tag.textContent=game.genre||'Xbox Cloud Gaming';
+      const tag=document.createElement('small');tag.className='xb-card-sub';
+      tag.textContent=game.accessible===true?'● Acesso confirmado na nuvem':game.accessible===false?'Sem acesso confirmado':game.genre||'Acesso não verificado';
       button.appendChild(art);button.appendChild(label);button.appendChild(tag);
       button.onclick=()=>selectGame(game.titleId);
       fragment.appendChild(button);
     }
     grid.appendChild(fragment);
-    $('xb-results-count').textContent=results.length+' jogos exibidos • '+currentGames.length+' carregados';
+    const noResults=activeFilter==='recent'?'Sem jogos recentes da conta identificados na nuvem.':
+      activeFilter==='access'?'Nenhum jogo com acesso confirmado neste lote. Carregue mais títulos ou consulte o catálogo oficial.':
+      'Nenhum jogo corresponde à pesquisa.';
+    $('xb-results-count').textContent=results.length
+      ?results.length+' jogos exibidos • '+source.length+' nesta seção'
+      :noResults;
   }
   function selectGame(id){
-    const game=currentGames.find(x=>x.titleId===id);if(!game)return;
+    const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id);if(!game)return;
     selectedId=id;
     const select=$('games');select.replaceChildren();
     const option=document.createElement('option');option.value=game.titleId;option.textContent=game.name||game.titleId;
@@ -178,10 +194,36 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     $('xb-hero-title').textContent=game.name||game.titleId;
     $('xb-hero-description').textContent=game.description||game.genre||'Inicie um jogo real dos servidores Xbox Cloud Gaming. A disponibilidade depende da sua conta.';
     $('xb-hero-source').textContent=game.publisher||'Biblioteca oficial de jogos na nuvem';
-    $('play').disabled=false;
+    $('xb-game-access').textContent=game.accessible===true
+      ?'Esta conta informa acesso ao jogo pela nuvem (não confirma compra permanente).'
+      :game.accessible===false
+        ?'Esta conta não informa acesso a este jogo. Confirme no Xbox oficial.'
+        :'Não foi possível verificar a licença desta conta. O Xbox poderá recusar a partida.';
+    $('xb-launch-status').textContent='';
+    $('play').disabled=game.accessible===false;
     const cards=document.querySelectorAll('.xb-game-card');cards.forEach(c=>{c.classList.toggle('is-selected',c.dataset.titleId===id)});
   }
   $('xb-game-search').addEventListener('input',e=>{currentSearch=e.target.value;displayGames()});
+  function setFilter(mode){
+    activeFilter=mode;
+    for (const key of ['cloud','access','recent'])
+      $('xb-filter-'+key).classList.toggle('is-active',mode===key);
+    displayGames();
+    show('xb-more',mode==='cloud'&&typeof nextOffset==='number');
+  }
+  $('xb-filter-cloud').onclick=()=>setFilter('cloud');
+  $('xb-filter-access').onclick=()=>setFilter('access');
+  $('xb-filter-recent').onclick=()=>setFilter('recent');
+  async function loadRecent(){
+    try{
+      const result=await api('recent');
+      recentGames=Array.isArray(result.games)?result.games.filter(g=>g&&g.titleId):[];
+      if(activeFilter==='recent')displayGames();
+    }catch(error){
+      recentGames=[];
+      if(activeFilter==='recent')$('xb-results-count').textContent='Não foi possível consultar os jogos recentes desta conta. Verifique se este recurso está disponível.';
+    }
+  }
   $('xb-more').onclick=()=>{if(typeof nextOffset==='number')loadCatalog(false)};
   $('titles').onclick=()=>loadCatalog(true);
 
@@ -191,6 +233,8 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     authInfo('Conta conectada.');
     status('Conta Xbox conectada. Carregando jogos reais…');
     await loadCatalog(true);
+    // The MRU list is personalized account activity, not purchased ownership.
+    void loadRecent();
   }
   async function pollAuth(){
     if(!canAsk||authorized||authPolling)return;
