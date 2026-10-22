@@ -15,6 +15,7 @@ import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
+import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -26,6 +27,7 @@ const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message|
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
+let lastStrongVideoRebindAt=0;
 let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
 let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
@@ -81,6 +83,7 @@ function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  lastSoftRecoveryAt=0;lastSoftFreezeCount=null;currentVideoFreezeCount=null;
+ lastStrongVideoRebindAt=0;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
@@ -162,6 +165,10 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   // This may flash black briefly; reserve it for manual recovery or a second
   // independently measured freeze after the earlier lightweight attempt.
   const stream=media.srcObject;
+  // Mark the native plane as rebound BEFORE rebuilding it. Even if VIDAA
+  // rejects play(), repeated browser freezeCount increments must not keep
+  // interrupting resumed gameplay with further automatic pause/play cycles.
+  lastStrongVideoRebindAt=Date.now();
   media.pause();
   media.srcObject=null;
   media.srcObject=stream;
@@ -358,9 +365,15 @@ function startVideoHealth(){
    });
    if(introEligible && gameOverlayOpen)queuedMetroIntroRecovery=true;
    const introFreeze=introEligible && !gameOverlayOpen;
-   const signalFrozen=((result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3)
-     || audioVideoStallChecks>=3 || recurringMetroFreezes || introFreeze;
    const visualFrozen=visual?.frozen===true;
+   const signalFrozen=shouldAutoRepairAfterVideoEvidence({
+    alreadyRebound:lastStrongVideoRebindAt>0,
+    decodeOrPresentationStall:(result.kind==='decode-stall'||result.kind==='presentation-stall')&&freezeChecks>=3,
+    audioActiveVideoStall:audioVideoStallChecks>=3,
+    visualStallConfirmed:visualFrozen,
+    recurringWebRtcFreeze:recurringMetroFreezes,
+    introFreeze
+   });
    const cooldownMs=metroRecoveryAttempts>0
      ?Math.max(0,90000-(now-metroLastRecoveryAt)):0;
    notifyParent({type:'xbridge-recovery-decision',
@@ -449,6 +462,7 @@ function startVideoHealth(){
      ready:sample.videoReadyState>=2,
      connected:effectiveState==='connected'||effectiveState==='completed',
      attempts:metroRecoveryAttempts,softEligible:doSoft,strongEligible:doStrong,
+     postStrongProtected:lastStrongVideoRebindAt>0,
      recoveryBusy:videoRecoveryInFlight,compatEnabled:opaqueRepairEnabled,
      hasVideo:Boolean(media?.srcObject),lastSoftAgoSec:lastSoftRecoveryAt?
       Math.round((now-lastSoftRecoveryAt)/1000):null
