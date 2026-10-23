@@ -81,6 +81,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
           <button id="xb-filter-cloud" class="xb-filter is-active" type="button">Catálogo na nuvem</button>
           <button id="xb-filter-access" class="xb-filter" type="button">Com acesso na conta</button>
           <button id="xb-filter-recent" class="xb-filter" type="button">Jogados recentemente</button>
+          <button id="xb-filter-favorites" class="xb-filter" type="button">★ Meus favoritos</button>
         </div>
         <p class="xb-library-notice">O catálogo na nuvem não é a lista de compras da sua conta. “Com acesso” pode incluir jogos por assinatura Game Pass, não apenas os que você comprou. Títulos adquiridos sem suporte ao Xbox Cloud Gaming não aparecem aqui.</p>
         <div id="xb-results-count" class="xb-results-count">Carregando títulos reais do Xbox…</div>
@@ -267,7 +268,17 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   // Limit artwork to 8 extra covers so VIDAA's browser remains responsive.
   function renderQuickAccess(){
   const localFavoriteKey='xbridge:device-favorites-v1';
+  let savedFavorites=[];
   let hubGame=null;
+  async function refreshFavoriteGames(){
+    let values=localFavorites();
+    try{
+      const response=await fetch('/api/console/favorites',{credentials:'same-origin'});
+      if(response.ok){const data=await response.json();
+       values=Array.isArray(data.favorites)?data.favorites:[];}
+    }catch(_){}
+    savedFavorites=values.filter(g=>g&&g.titleId&&g.name).slice(0,100);
+  }
   const localFavorites=()=>{
    try{const a=JSON.parse(localStorage.getItem(localFavoriteKey)||'[]');return Array.isArray(a)?a:[];}
    catch{return [];}
@@ -288,7 +299,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   const normGameTitle=value=>String(value||'').toLowerCase().normalize('NFD')
     .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
   function openGameHub(id){
-   const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id);
+   const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id)||savedFavorites.find(x=>x.titleId===id);
    if(!game)return;
    selectGame(id);hubGame=game;
    $('xb-hub-name').textContent=game.name||'Jogo';
@@ -333,12 +344,13 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
    try{
     const result=await fetch('/api/console/favorites',{method:'POST',
      headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({game})});
-    if(result.ok){await updateFavoriteLabel();return;}
+    if(result.ok){await refreshFavoriteGames();await updateFavoriteLabel();if(activeFilter==='favorites')displayGames();return;}
    }catch(_){}
    const existing=localFavorites(),has=existing.some(x=>x.titleId===game.titleId);
    try{localStorage.setItem(localFavoriteKey,JSON.stringify(has
     ?existing.filter(x=>x.titleId!==game.titleId):[game,...existing].slice(0,100)));}catch(_){}
-   await updateFavoriteLabel();
+   await refreshFavoriteGames();await updateFavoriteLabel();
+   if(activeFilter==='favorites')displayGames();
   };
     const row=$('xb-quick-row');
     row.replaceChildren();
@@ -382,6 +394,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     const grid=$('xb-games-grid');
     grid.replaceChildren();
     const source=activeFilter==='recent'?recentGames:
+      activeFilter==='favorites'?savedFavorites.map(g=>currentGames.find(x=>x.titleId===g.titleId)||g):
       activeFilter==='access'?currentGames.filter(g=>g.accessible===true):currentGames;
     const results=source.filter(g=>!q||String(g.name||g.titleId).toLocaleLowerCase('pt-BR').includes(q));
     const fragment=document.createDocumentFragment();
@@ -409,6 +422,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     }
     grid.appendChild(fragment);
     const noResults=activeFilter==='recent'?'Sem jogos recentes da conta identificados na nuvem.':
+      activeFilter==='favorites'?'Nenhum favorito. Abra o perfil do jogo e adicione à sua lista.':
       activeFilter==='access'?'Nenhum jogo com acesso confirmado neste lote. Carregue mais títulos ou consulte o catálogo oficial.':
       'Nenhum jogo corresponde à pesquisa.';
     $('xb-results-count').textContent=results.length
@@ -416,7 +430,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       :noResults;
   }
   function selectGame(id){
-    const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id);if(!game)return;
+    const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id)||savedFavorites.find(x=>x.titleId===id);if(!game)return;
     selectedId=id;
     const select=$('games');select.replaceChildren();
     const option=document.createElement('option');option.value=game.titleId;option.textContent=game.name||game.titleId;
@@ -444,7 +458,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     settingsPanel.hidden=true;
     for(const name of ['home','recent','library']) $('xb-nav-'+name).classList.toggle('is-active',
       mode==='recent'?name==='recent':name==='home'||name==='library');
-    for (const key of ['cloud','access','recent'])
+    for (const key of ['cloud','access','recent','favorites'])
       $('xb-filter-'+key).classList.toggle('is-active',mode===key);
     displayGames();
     show('xb-more',mode==='cloud'&&typeof nextOffset==='number');
@@ -452,6 +466,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   $('xb-filter-cloud').onclick=()=>setFilter('cloud');
   $('xb-filter-access').onclick=()=>setFilter('access');
   $('xb-filter-recent').onclick=()=>setFilter('recent');
+  $('xb-filter-favorites').onclick=async()=>{await refreshFavoriteGames();setFilter('favorites');};
   async function loadRecent(){
     if(Date.now()<xboxRateLimitedUntil)return;
     try{
@@ -481,6 +496,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     authInfo('Conta conectada.');
     status('Conta Xbox conectada. Carregando jogos reais…');
     await loadCatalog(true);
+    void refreshFavoriteGames();
     // The MRU list is personalized account activity, not purchased ownership.
     void loadRecent();
   }
