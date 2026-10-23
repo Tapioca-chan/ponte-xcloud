@@ -2,6 +2,12 @@
 // This is not an embedded xbox.com page and never displays invented games.
 export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handlers}) {
   const $ = id => document.getElementById(id);
+  // This selection originated from a console game tile, not an Xbox
+  // entitlement assertion. Preserve it across Microsoft device auth/reload.
+  const requestedParam=new URLSearchParams(location.search).get('game');
+  const requestedGame=['Fortnite','Metro Exodus','Marvel Rivals'].includes(requestedParam)
+    ? requestedParam : '';
+  let selectionResolved=false;
   $('tv').innerHTML = `
     <div class="xb-console">
       <div class="xb-app-top">
@@ -24,6 +30,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
           <div class="xb-label">01 / VINCULAR CONTA</div>
           <h2>Entre com a Microsoft</h2>
           <p>Use o celular para autorizar seu Xbox. Você não digita senha aqui.</p>
+          <p id="xb-requested-game" class="xb-requested-game" hidden></p>
           <button id="embed-login" class="xb-button xb-button-primary" disabled>Conectar conta Microsoft <span aria-hidden="true">↗</span></button>
           <div class="xb-authorization" id="xb-authorization" hidden>
             <div class="xb-authorization-main">
@@ -93,6 +100,10 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         <p class="xb-settings-hint">O xBridge mantém a autorização criptografada no banco MongoDB separado do bot. Reabrir o navegador ou reiniciar o servidor normalmente restaura a sessão. A Microsoft poderá exigir nova autorização quando ela for revogada ou expirar.</p>
       </aside>
     </div>`;
+  if(requestedGame){
+    $('xb-requested-game').hidden=false;
+    $('xb-requested-game').textContent='JOGO SELECIONADO NO CONSOLE: '+requestedGame;
+  }
   // The standalone player already uses these canonical element IDs.
   // The redesigned embedded markup deliberately prefixes them to avoid
   // collisions before mount. Switch them back BEFORE reading or binding any
@@ -168,7 +179,36 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       show('xb-more',activeFilter==='cloud'&&nextOffset!==null);
       displayGames();
       renderQuickAccess();
-      if(!selectedId&&currentGames.length)selectGame(currentGames[0].titleId);
+      if(requestedGame&&!selectionResolved){
+        // The highlighted home game may not be on catalog page 1.
+        // Search the real Xbox title registry once, never launch an
+        // unverified ID or endlessly paginate (429 risk).
+        const norm=v=>String(v||'').toLowerCase().normalize('NFD')
+          .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+        let match=currentGames.find(game=>norm(game.name)===norm(requestedGame));
+        if(!match){
+          try{
+            const lookup=await api('catalog',{search:requestedGame,offset:0,limit:12});
+            for(const game of Array.isArray(lookup.games)?lookup.games:[]){
+              if(game?.titleId&&!currentGames.some(x=>x.titleId===game.titleId))currentGames.push(game);
+            }
+            match=currentGames.find(game=>norm(game.name)===norm(requestedGame))
+              ||currentGames.find(game=>norm(game.name).includes(norm(requestedGame)));
+          }catch(_){ /* Xbox search unavailable: preserve normal library. */ }
+        }
+        selectionResolved=true;
+        if(match){
+          selectGame(match.titleId);
+          displayGames();
+          renderQuickAccess();
+          status(requestedGame+' localizado na biblioteca Xbox. Selecione Jogar agora.');
+        }else{
+          $('xb-results-count').textContent='O jogo '+requestedGame+
+            ' não foi encontrado no catálogo Xbox disponível nesta conta. Você pode procurar outro título abaixo.';
+          status('Jogo destacado não encontrado neste catálogo. Não foi iniciada nenhuma sessão.');
+        }
+      }
+      if(!selectedId&&currentGames.length&&!requestedGame)selectGame(currentGames[0].titleId);
       if(!currentGames.length)$('xb-results-count').textContent='Nenhum jogo disponível foi retornado pela Microsoft nesta conta.';
       status(currentGames.length+' títulos reais carregados. Selecione um jogo.');
     }catch(error){
