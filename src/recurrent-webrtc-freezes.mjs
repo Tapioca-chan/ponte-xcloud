@@ -22,10 +22,10 @@ export class RecurrentWebRtcFreezeWatch {
   }
   const increment=count-this.previousCount;
   this.previousCount=count;
-  const warmed=Number.isFinite(firstVideoAt) && firstVideoAt>0 && now-firstVideoAt>=60000;
+  const warmed=Number.isFinite(firstVideoAt) && firstVideoAt>0 && now-firstVideoAt>=45000;
   this.events=this.events.filter(at=>now-at>=0 && now-at<=105000);
   if(!warmed)this.events=[];
-  // Require two separate post-grace sample intervals. A burst of two in a
+  // With faster polls, still require two separate post-grace sample intervals. A burst of two in a
   // single poll could be a normal advert or Xbox media transition.
   if(warmed && increment>0 && Number(decodedDelta)>0 && Number(receivedDelta)>0){
    this.events.push(now);
