@@ -37,3 +37,23 @@ export function shouldEscalateMetroOpaqueRepair(a){
    a.now-a.lastSoftRecoveryAt>=minSinceSoft &&
    a.now-a.lastSoftRecoveryAt<=105000;
 }
+
+
+// If another existing evidence-based startup watchdog fires first, prefer
+// exactly the same native-surface approach instead of burning the bounded
+// attempt on pause/play. The caller must still have established an actual
+// WebRTC stall/freeze signal. This is never a periodic blind timer.
+export function shouldPreferNativeMetroSurface({
+ title,nativePlaneUnobservable=false,firstVideoAt=0,now=0,
+ freezeCount=0,hasVideo=false,videoReadyState=0,connection='',
+ overlayOpen=false,recoveryBusy=false,alreadyTried=false
+}={}){
+ const age=now-firstVideoAt;
+ return needsXboxDialogCompatibility(title) &&
+  nativePlaneUnobservable===true && firstVideoAt>0 &&
+  age>=45000 && age<=255000 &&
+  Number.isFinite(freezeCount) && freezeCount>0 &&
+  hasVideo===true && videoReadyState>=2 &&
+  (connection==='connected'||connection==='completed') &&
+  !overlayOpen && !recoveryBusy && !alreadyTried;
+}
