@@ -101,3 +101,40 @@ export function shouldProtectRecoveredMetroSurface({
 }={}){
  return needsXboxDialogCompatibility(title) && nativeSurfaceRecovered===true;
 }
+
+
+// Observed on VIDAA: native surface repair #1 accepted at 09:31:23,
+// a later user-triggered "Nova superfície" accepted at 09:32:43 and
+// restored the image. A second *native surface* can therefore be a bounded
+// fallback, distinct from the harmful automatic srcObject detach/rebind.
+// The compositor cannot be observed directly; require two NEW WebRTC freezes
+// after repair #1, ongoing decoder/network progress and an idle controller.
+// Never interrupt active gameplay, never retry during an overlay, never loop.
+export function shouldRetryMetroNativeSurface({
+ title='',nativePlaneUnobservable=false,firstVideoAt=0,now=0,
+ lastSurfaceAt=0,baselineFreezeCount=null,freezeCount=null,
+ autoNativeSurfaceAttempts=0,priorSurfaceSucceeded=false,
+ decodedDelta=null,receivedDelta=null,
+ hasVideo=false,videoReadyState=0,videoPaused=false,
+ connection='',overlayOpen=false,recoveryBusy=false,
+ lastManualRecoveryAt=0,enabled=true,recentMeaningfulInput=false
+}={}){
+ const sinceFirstVideo=now-firstVideoAt;
+ const sinceFirstRepair=now-lastSurfaceAt;
+ return needsXboxDialogCompatibility(title) && enabled===true &&
+  nativePlaneUnobservable===true &&
+  priorSurfaceSucceeded===true && autoNativeSurfaceAttempts===1 &&
+  Number.isFinite(firstVideoAt)&&firstVideoAt>0 &&
+  Number.isFinite(lastSurfaceAt)&&lastSurfaceAt>firstVideoAt &&
+  Number.isFinite(now) && sinceFirstVideo>=125000 &&
+  sinceFirstVideo<=360000 &&
+  sinceFirstRepair>=70000 && sinceFirstRepair<=240000 &&
+  Number.isFinite(baselineFreezeCount) && baselineFreezeCount>=0 &&
+  Number.isFinite(freezeCount) && freezeCount>=baselineFreezeCount+2 &&
+  Number.isFinite(decodedDelta)&&decodedDelta>=30 &&
+  Number.isFinite(receivedDelta)&&receivedDelta>0 &&
+  hasVideo===true && videoReadyState>=2 && !videoPaused &&
+  (connection==='connected'||connection==='completed') &&
+  !overlayOpen && !recoveryBusy && !recentMeaningfulInput &&
+  !(lastManualRecoveryAt>0);
+}
