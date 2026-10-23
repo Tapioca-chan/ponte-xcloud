@@ -38,6 +38,12 @@ test('embedded Xbox dashboard initializes all real login and playback controls',
     for (const id of ['login','verify','titles','play','sound','fullscreen','stop']) {
       assert.equal(typeof elements.get(id).onclick, 'function', id+' must have an event handler');
     }
+    // All game hub/favorite buttons must exist and be wired to REAL
+    // stream handlers, not decorative mock buttons.
+    for(const id of ['xb-hub-close','xb-hub-play','xb-hub-favorite','xb-filter-favorites']){
+      assert.ok(elements.has(id),id+' must render');
+      assert.equal(typeof elements.get(id).onclick,'function',id+' must have an action');
+    }
     dashboard.ready();
     assert.equal(elements.get('login').disabled, false);
     assert.match(elements.get('xb-login-feedback').textContent, /Autorize/);
