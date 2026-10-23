@@ -179,6 +179,55 @@ async function markVisibleFreeze(){
   status('Diagnóstico da imagem congelada registrado. Pode usar Recuperar imagem se necessário.');
  },8000);
 }
+async function rebuildNativeVideoSurfaceWithEvidence(){
+ if(videoRecoveryInFlight){
+  status('Outra recuperação da imagem já está em andamento.');
+  return;
+ }
+ const active=player;
+ const media=active?.getVideoElement?.() as HTMLVideoElement|undefined;
+ if(!active || !media?.srcObject || !media.isConnected){
+  status('Não há uma superfície de vídeo ativa. Use Recuperar imagem primeiro.');
+  return;
+ }
+ videoRecoveryInFlight=true;
+ ++freezeMarkerSerial;
+ activeFreezeMarker=null;
+ visualWatchdog?.reset();
+ lastManualRecoveryAt=Date.now();
+ // Do not expose RTP payloads or Xbox account data in the event logs.
+ const before=await captureFreezeSampleBounded(450);
+ reportFreezeSample('surface-before','manual-surface',before);
+ traceVideo('attempt',{stage:'surface',kind:'native-plane-rebuild',manual:true,
+  freezeCount:currentVideoFreezeCount,attempts:metroRecoveryAttempts});
+ notifyParent({type:'xbridge-native-surface-rebuild',step:'start'});
+ try{
+  const rebuilt=await active.rebuildNativeVideoSurface?.()===true;
+  if(player!==active)return;
+  if(rebuilt){
+   lastStrongVideoRebindAt=Date.now();
+   healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
+   lastSoftRecoveryAt=0;lastSoftFreezeCount=null;
+   webRtcFreezeWatch.acknowledgeRecovery();
+   status('Nova superfície nativa criada com o mesmo vídeo Xbox. Confira a imagem da TV.');
+  }else{
+   status('A Toshiba não aceitou a nova superfície. O vídeo original foi restaurado; use Recuperar imagem.');
+  }
+  notifyParent({type:'xbridge-native-surface-rebuild',step:rebuilt?'created':'failed'});
+  traceVideo('result',{stage:'surface',kind:'native-plane-rebuild',result:rebuilt?'play-accepted':'exception',manual:true});
+  setTimeout(async()=>{
+   if(player!==active)return;
+   const after=await captureFreezeSampleBounded(1500);
+   if(player!==active)return;
+   const difference=compareFreezeEvidence(before,after);
+   reportFreezeSample('surface-after','manual-surface',after,difference);
+  },4500);
+ }catch(_){
+  status('Falha ao recriar a superfície do VIDAA. Sua sessão Xbox permanece ativa.');
+  notifyParent({type:'xbridge-native-surface-rebuild',step:'failed'});
+  traceVideo('result',{stage:'surface',kind:'native-plane-rebuild',result:'exception',manual:true});
+ }finally{videoRecoveryInFlight=false;}
+}
 async function recoverManuallyWithEvidence(){
  if(videoRecoveryInFlight)return;
  ++freezeMarkerSerial;
@@ -1034,6 +1083,10 @@ if (embedded) {
   } else if(event.data?.type==='xbridge-mark-frozen'){
    // Pure observation: no media rebind, controller packet or keyframe request.
    void markVisibleFreeze();
+  } else if(event.data?.type==='xbridge-rebuild-native-video'){
+   // Opt-in experimental native DOM surface replacement after a visible freeze.
+   // Does not touch Microsoft login, WebRTC or the game controller.
+   void rebuildNativeVideoSurfaceWithEvidence();
   } else if(event.data?.type==='xbridge-recover-video'){
    void recoverManuallyWithEvidence();
   } else if(event.data?.type==='xbridge-resume-media'){
