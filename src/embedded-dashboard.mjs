@@ -11,6 +11,9 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   const requestedGame=typeof requestedParam==='string'&&requestedParam.length<=150
     && !/[<>\u0000-\u001f]/.test(requestedParam)?requestedParam:'';
   let selectionResolved=false;
+  const autoLaunchRequested=typeof location!=='undefined' &&
+    new URLSearchParams(location.search).get('autolaunch')==='1';
+  let autoLaunchDone=false;
   $('tv').innerHTML = `
     <div class="xb-console">
       <div class="xb-app-top">
@@ -235,7 +238,20 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
           selectGame(match.titleId);
           displayGames();
           renderQuickAccess();
-          status(requestedGame+' localizado na biblioteca Xbox. Selecione Jogar agora.');
+          if(match.accessible===false){
+            // Real Xbox catalog explicitly reports no entitlement. Show
+            // purchase/plan alternatives; never silently launch a denied game.
+            notifyParent({type:'xbridge-game-access',status:'not_owned',
+              name:String(match.name||requestedGame).slice(0,150),
+              productId:String(match.productId||'').slice(0,40)});
+            status(requestedGame+' sem acesso confirmado no Xbox. Confira a loja ou assinatura.');
+          }else if(autoLaunchRequested&&!autoLaunchDone){
+            autoLaunchDone=true;
+            status('Abrindo '+requestedGame+' diretamente na TV…');
+            // The normal Xbox stream handler validates entitlement again.
+            // Autoplay restrictions on VIDAA may require pressing A on TV.
+            setTimeout(()=>{if(!$('play').disabled)$('play').click();},120);
+          }else status(requestedGame+' localizado na biblioteca Xbox. Selecione Jogar agora.');
         }else{
           $('xb-results-count').textContent='O jogo '+requestedGame+
             ' não foi encontrado no catálogo Xbox disponível nesta conta. Você pode procurar outro título abaixo.';
