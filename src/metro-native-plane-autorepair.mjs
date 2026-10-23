@@ -139,3 +139,53 @@ export function shouldRetryMetroNativeSurface({
   !overlayOpen && !recoveryBusy && !recentMeaningfulInput &&
   !(lastManualRecoveryAt>0);
 }
+
+
+// Continuous Metro/VIDAA recovery policy: unlike the original two-attempt
+// introduction workaround, this remains active throughout arbitrarily long
+// gameplay. WebRTC freeze bursts are only SUSPECTED visual stalls because
+// VIDAA provides no compositor pixel readback. A separate idle-time fallback
+// works even if WebRTC freezeCount stays zero. Cooldowns prevent loops; they
+// are not a maximum session age or attempt cap.
+export function chooseMetroHybridSurfaceRecovery({
+ title='',now=0,firstVideoAt=0,lastAttemptAt=0,lastManualRecoveryAt=0,
+ nativePlaneUnobservable=false,visualFrozen=false,presentationStalled=false,
+ recentFreezeEvents=0,decodedDelta=null,receivedDelta=null,
+ hasVideo=false,videoReadyState=0,videoPaused=false,connection='',
+ overlayOpen=false,recoveryBusy=false,recentMeaningfulInput=false,
+ enabled=true
+}={}){
+ const no={repair:false,reason:'none'};
+ if(!needsXboxDialogCompatibility(title)||enabled!==true ||
+   !(nativePlaneUnobservable||visualFrozen||presentationStalled)||
+   !Number.isFinite(firstVideoAt)||firstVideoAt<=0||
+   !Number.isFinite(now)||now<firstVideoAt||
+   hasVideo!==true||videoReadyState<2||videoPaused||
+   (connection!=='connected'&&connection!=='completed')||
+   overlayOpen||recoveryBusy)return no;
+ if(!Number.isFinite(decodedDelta)||decodedDelta<=0||
+    !Number.isFinite(receivedDelta)||receivedDelta<=0)return no;
+ const latestRepair=Math.max(firstVideoAt,
+  Number.isFinite(lastAttemptAt)?lastAttemptAt:0,
+  Number.isFinite(lastManualRecoveryAt)?lastManualRecoveryAt:0);
+ const sinceRepair=now-latestRepair;
+ const sinceFirst=now-firstVideoAt;
+ // A manual action needs its own quiet period so automation cannot undo it.
+ if(lastManualRecoveryAt>0&&now-lastManualRecoveryAt<90000)return no;
+ // Never reset the video immediately after connecting or just after another
+ // attempted replacement. This is a cooldown, not a limit on play duration.
+ if(sinceFirst<60000 || sinceRepair<75000)return no;
+ // The recurring detector is available at ANY minute/hour of the session;
+ // require multiple discrete poll events and avoid controller-active frames.
+ if((visualFrozen||presentationStalled) && sinceRepair>=75000)
+  return {repair:true,reason:'visual-evidence'};
+ if(recentFreezeEvents>=2 && !recentMeaningfulInput)
+  return {repair:true,reason:'webrtc-suspected'};
+ // If the opaque VIDAA plane conceals a real freeze and the counters remain
+ // zero, periodically refresh only while the gamepad has been idle.
+ // Rechecked on each watchdog tick, throughout the WHOLE game session.
+ if(!recentMeaningfulInput &&
+    sinceFirst>=120000 && sinceRepair>=180000)
+  return {repair:true,reason:'timed-idle'};
+ return no;
+}
