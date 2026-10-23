@@ -658,10 +658,20 @@ async function api(action:string,body:any={}){
   headers:{'Content-Type':'application/json',...(room?{'Authorization':'Bearer '+room.tvKey}:{})},
   body:JSON.stringify({...body,room:room?.id})
  });
- const data=await response.json();
+ // A platform-generated 429 may be plain text or HTML, not JSON.
+ // Never confuse the browser with a JSON parsing error on rate limiting.
+ const raw=await response.text();
+ let data:any={};
+ try{data=JSON.parse(raw)}catch(_){
+  data={error:response.status===429
+   ?'O servidor limitou temporariamente as requisições (HTTP 429). Aguarde antes de tentar novamente.'
+   :'O servidor respondeu em um formato inesperado.'};
+ }
  if(!response.ok){
   const error=Object.assign(new Error(data.error||'Servidor indisponível'),{
-   status:response.status,reason:data.reason||'',retryable:data.retryable===true
+   status:response.status,stage:data.stage||action,
+   reason:data.reason||'',retryable:data.retryable===true,
+   retryAfterSec:data.retryAfterSec||60
   });
   throw error;
  }
@@ -1064,6 +1074,14 @@ if (embedded) {
     if(error?.status===401 && ['cookie_missing','session_not_found','authorization_rejected'].includes(error?.reason)){
      needsLogin=true;break;
     }
+    if(error?.status===429){
+     // Respect Xbox/Render rate limits: don't burn four more resume
+     // attempts and then allocate another room immediately.
+     $('xb-resume-retry').hidden=false;
+     dashboard.error('Limite temporário HTTP 429. Sua conta Xbox continua salva. Aguarde um minuto e selecione Restaurar sessão.');
+     status('O serviço limitou novas tentativas. Sua conta Xbox permanece salva.');
+     return;
+    }
    }
    if(attempt<4){
     const delay=[1200,2200,3500,5500][attempt];
@@ -1071,7 +1089,16 @@ if (embedded) {
     await new Promise(resolve=>setTimeout(resolve,delay));
    }
   }
-  room=await api('create');
+  try{room=await api('create');}
+  catch(error:any){
+   if(error?.status===429){
+    $('xb-resume-retry').hidden=false;
+    dashboard.error('O servidor atingiu um limite temporário (HTTP 429). Aguarde cerca de um minuto e selecione Restaurar sessão.');
+    status('Limite temporário de salas. Não é necessário autorizar a Microsoft novamente.');
+    return;
+   }
+   throw error;
+  }
   dashboard.ready();
   notifyParent({type:'xbridge-ready'});
   if(needsLogin){
