@@ -52,3 +52,17 @@ test('evidence-based Metro freeze watchdog prioritizes automatic native plane (n
  assert.equal(shouldPreferNativeMetroSurface({...base,freezeCount:0}),false);
  assert.equal(shouldPreferNativeMetroSurface({...base,now:300000}),false);
 });
+
+test('Metro compositor stall prioritizes native surface even after early callbacks, without a browser freeze counter',()=>{
+ const baseline={title:'Metro Exodus',nativePlaneUnobservable:false,firstVideoAt:1000,
+  now:100000,freezeCount:null,hasVideo:true,videoReadyState:4,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,alreadyTried:false};
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true}),true);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,visualFrozen:true}),true);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:false,visualFrozen:false}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,alreadyTried:true}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,now:15000}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,title:'Marvel Rivals'}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,overlayOpen:true}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,connection:'disconnected'}),false);
+});
