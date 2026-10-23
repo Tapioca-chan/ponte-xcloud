@@ -857,7 +857,7 @@ function startVideoHealth(){
     traceVideo('unavailable',{kind:'monitor-error',metro:needsXboxDialogCompatibility(launchedStreamingTitle)});
    }
   }finally{videoHealthBusy=false}
- },6500);
+ },needsXboxDialogCompatibility(launchedStreamingTitle)?4000:6500);
 }
 let map:any={},mappingKey='',calStep=-1,calWaiting=0,previous:any,baseAxes:number[]=[];
 const fields=[...buttons,...axes];
@@ -1030,7 +1030,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
         && (channel as any)._dataChannel?.readyState==='open') {
         channel.reannounceStableGamepad();
       }
-    },needsXboxDialogCompatibility(launchedStreamingTitle)?4000:6500);
+    },6500);
    } else {
     original();
     channel.sendGamepadState(0,true,androidHandler);
