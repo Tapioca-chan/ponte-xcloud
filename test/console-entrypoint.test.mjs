@@ -5,9 +5,9 @@ import {isDirectConsoleNavigation,directConsoleDestination} from '../src/console
 test('historic xbridge-player root opens console for direct TV or mobile users',()=>{
  assert.equal(isDirectConsoleNavigation({pathname:'/',method:'GET'}),true);
  assert.equal(isDirectConsoleNavigation({pathname:'/index.html',method:'GET'}),true);
- assert.equal(directConsoleDestination(), 'https://xcloud-tv.onrender.com/?role=tv');
+ assert.equal(directConsoleDestination(), 'https://xbridge-hnd9.onrender.com/?role=tv');
  assert.equal(directConsoleDestination('?role=mobile&room=XB42'),
- 'https://xcloud-tv.onrender.com/?role=mobile&room=XB42');
+ 'https://xbridge-hnd9.onrender.com/?role=mobile&room=XB42');
 });
 
 test('proxy player/health/API/WebSocket paths never redirect',()=>{
@@ -22,7 +22,7 @@ test('proxy player/health/API/WebSocket paths never redirect',()=>{
 
 test('legacy URL cannot produce an open redirect or forward arbitrary query data',()=>{
  assert.equal(directConsoleDestination('?role=tv&room=AAAA12&token=secret&redirect=https://evil.example'),
-  'https://xcloud-tv.onrender.com/?role=tv&room=AAAA12');
+  'https://xbridge-hnd9.onrender.com/?role=tv&room=AAAA12');
  assert.equal(directConsoleDestination('?role=unknown&room=invalid-!'),
-  'https://xcloud-tv.onrender.com/?role=tv');
+  'https://xbridge-hnd9.onrender.com/?role=tv');
 });
