@@ -12,7 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from './metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
@@ -35,6 +35,7 @@ let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let queuedMetroIntroRecovery=false;
+let autoNativeSurfaceAttempts=0;
 let lastVideoTelemetryAt=0;
 let freezeMarkerSerial=0;
 let activeFreezeMarker:{serial:number;baseline:any}|null=null;
@@ -91,6 +92,7 @@ function stopVideoHealth(){
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
+ autoNativeSurfaceAttempts=0;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
@@ -187,7 +189,10 @@ async function autoRebuildMetroSurface():Promise<boolean>{
     !needsXboxDialogCompatibility(launchedStreamingTitle))return false;
  const active=player;
  const video=active?.getVideoElement?.() as HTMLVideoElement|undefined;
- if(!active || !video?.srcObject || !video.isConnected)return false;
+ if(!active || !video?.srcObject || !video.isConnected || autoNativeSurfaceAttempts>=1)return false;
+ // One real hardware-surface replacement per Xbox session. Do not keep
+ // blanking the game after this bounded recovery has already been attempted.
+ autoNativeSurfaceAttempts++;
  videoRecoveryInFlight=true;
  traceVideo('attempt',{stage:'surface',kind:'native-plane-rebuild',manual:false,
    metro:true,attempts:metroRecoveryAttempts,freezeCount:currentVideoFreezeCount});
@@ -622,7 +627,20 @@ function startVideoHealth(){
       recurringMetroFreezes?'webrtc-freeze-burst':
       visualFrozen?'visual-still':result.kind;
     status('Possível congelamento detectado ('+kind+'). Recuperando imagem…');
-    const recovered=await recoverXboxVideoLocally('automatic',kind);
+    // Evidence-based watchdog may fire before the normal Metro startup
+    // controller. Give the new native-plane repair the first real attempt,
+    // rather than using pause/play again on a physically frozen video.
+    const preferSurface=shouldPreferNativeMetroSurface({
+     title:launchedStreamingTitle,nativePlaneUnobservable:nativeBlind,
+     firstVideoAt:nativePlaneFirstVideoAt,now,
+     freezeCount:sample.freezeCount,hasVideo:Boolean(media?.srcObject),
+     videoReadyState:sample.videoReadyState,connection:effectiveState,
+     overlayOpen:gameOverlayOpen,
+     recoveryBusy:videoRecoveryInFlight||Boolean(activeFreezeMarker),
+     alreadyTried:autoNativeSurfaceAttempts>0
+    });
+    const recovered=(preferSurface && await autoRebuildMetroSurface()) ||
+      await recoverXboxVideoLocally('automatic',kind);
     visualWatchdog?.reset();
     audioVideoStallChecks=0;
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
@@ -694,7 +712,8 @@ function startVideoHealth(){
     queuedMetroIntroRecovery=false;
     const kind=doStrong?'metro-opaque-escalation':'metro-opaque-startup';
     notifyParent({type:'xbridge-metro-compat-action',
-      stage,attempt:metroRecoveryAttempts});
+      stage:doSoft && autoNativeSurfaceAttempts===0?'surface':stage,
+      attempt:metroRecoveryAttempts});
     status(doStrong
       ?'Metro/VIDAA: segunda etapa de recuperação automática, sem reiniciar o jogo…'
       :'Metro/VIDAA: recriando automaticamente a superfície nativa da TV…');
@@ -702,7 +721,8 @@ function startVideoHealth(){
     // but the Toshiba still displayed the same stuck frame. First create
     // an entirely NEW video DOM node with the existing Xbox MediaStream.
     // If hardware playback refuses it, fall back to the old soft method.
-    const surfaceOk=doSoft ? await autoRebuildMetroSurface() : false;
+    const surfaceOk=doSoft && autoNativeSurfaceAttempts===0
+      ? await autoRebuildMetroSurface() : false;
     const recovered=surfaceOk || await recoverXboxVideoLocally('automatic',kind);
     if(!recovered){
      notifyParent({type:'xbridge-metro-compat-action',stage:'failed',
