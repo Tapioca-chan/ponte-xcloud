@@ -550,8 +550,8 @@ function startVideoHealth(){
     // controller state may defer the timed fallback.
     nativeBlindNextSec:nativeBlind&&nativePlaneFirstVideoAt?
      Math.max(0,Math.ceil((Math.max(metroLastRecoveryAt,lastManualRecoveryAt)>0?
-      Math.max(metroLastRecoveryAt,lastManualRecoveryAt)+180000:
-      nativePlaneFirstVideoAt+120000)-now)/1000):null,
+      Math.max(metroLastRecoveryAt,lastManualRecoveryAt)+120000:
+      nativePlaneFirstVideoAt+80000)-now)/1000):null,
     nativeBlindAttempts:metroRecoveryAttempts,
     recurrentWebRtcFreezes:freezeEvidence.recentEvents,
     recurrentEvidenceStatus:freezeEvidence.reason
