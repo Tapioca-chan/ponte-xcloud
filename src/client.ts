@@ -1150,7 +1150,8 @@ if (embedded) {
  function handleConsoleController(actions:string[]){
   if(document.body.classList.contains('stream-playing'))return;
   const panel=$('xb-settings-panel');
-  const scope=panel&&!panel.hidden?panel:
+  const hub=$('xb-game-hub');
+  const scope=hub&&!hub.hidden?hub:panel&&!panel.hidden?panel:
    !$('xb-auth').hidden?$('xb-auth'):$('xb-library');
   const visible=(selector:string)=>Array.from(document.querySelectorAll<HTMLElement>(selector))
     .filter(el=>!el.hidden&&!el.hasAttribute('disabled')&&el.getClientRects().length>0
@@ -1163,12 +1164,13 @@ if (embedded) {
     continue;
    }
    if(action==='back'){
-    if(panel&&!panel.hidden){$('xb-settings-close').click();$('xb-settings-toggle').focus();}
+    if(hub&&!hub.hidden){$('xb-hub-close').click();$('xb-nav-library')?.focus();}
+    else if(panel&&!panel.hidden){$('xb-settings-close').click();$('xb-settings-toggle').focus();}
     else if(!$('xb-library').hidden){$('xb-nav-home')?.focus();$('xb-nav-home')?.click();}
     continue;
    }
    const candidates=visible('button, a[href], input[type="search"], input:not([type]), [role="button"]')
-      .filter(el=>scope.contains(el)||(!panel||panel.hidden)&&el.closest('.xb-app-top'));
+      .filter(el=>scope.contains(el)||((!hub||hub.hidden)&&(!panel||panel.hidden)&&el.closest('.xb-app-top')));
    const current=document.activeElement as HTMLElement;
    if(action==='confirm'){
     if(current&&candidates.includes(current)){ if(current.tagName==='INPUT'){current.focus()}else current.click();}
