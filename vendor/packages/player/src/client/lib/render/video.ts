@@ -6,6 +6,8 @@ export default class VideoComponent {
 
     private _element:HTMLVideoElement | undefined
     private _overlay:Overlay
+    private _frameLoopGeneration=0
+    private _surfaceRebuildBusy=false
 
     constructor(player:any){
         this._player = player
@@ -200,15 +202,22 @@ export default class VideoComponent {
             element.style.position = 'relative'
         }
 
-        this._element.requestVideoFrameCallback?.(this.processVideoMetadata.bind(this))
+        this.beginFrameMetadataLoop(videoElement)
     }
 
-    processVideoMetadata(timestamp, data:VideoFrameCallbackMetadata) {
-        if(this._element === undefined) {return}
+    private beginFrameMetadataLoop(video:HTMLVideoElement){
+        const generation=++this._frameLoopGeneration
+        video.requestVideoFrameCallback?.((timestamp,data)=>this.processVideoMetadata(timestamp,data,video,generation))
+    }
 
-        const video=this._element as HTMLVideoElement & {__xbridgePresentedFrames?:number}
-        video.__xbridgePresentedFrames=(video.__xbridgePresentedFrames||0)+1
-        this._element.requestVideoFrameCallback?.(this.processVideoMetadata.bind(this))
+    processVideoMetadata(timestamp:number, data:VideoFrameCallbackMetadata,
+      video:HTMLVideoElement, generation:number) {
+        // A callback on the detached VIDAA surface must not keep producing
+        // frame metadata or register duplicate callbacks on the new element.
+        if(this._element!==video || generation!==this._frameLoopGeneration)return
+        const tracked=video as HTMLVideoElement & {__xbridgePresentedFrames?:number}
+        tracked.__xbridgePresentedFrames=(tracked.__xbridgePresentedFrames||0)+1
+        video.requestVideoFrameCallback?.((time,meta)=>this.processVideoMetadata(time,meta,video,generation))
 
         this._player._channels.input.queueMetadataFrame({
             serverDataKey: data.rtpTimestamp as number,
@@ -217,6 +226,81 @@ export default class VideoComponent {
             frameDecodedTimeMs: data.expectedDisplayTime,
             frameRenderedTimeMs: data.expectedDisplayTime,
         })
+    }
+
+    // VIDAA-only, user-triggered native video plane rebuild. The old video
+    // HTMLElement is discarded, but Xbox's RTCPeerConnection, tracks, input,
+    // audio element and authenticated session stay intact. This is distinct
+    // from reassigning srcObject on the same (possibly stuck) HTMLElement.
+    async rebuildNativeSurface():Promise<boolean>{
+        if(this._surfaceRebuildBusy)return false
+        const old=this._element
+        const stream=old?.srcObject
+        const host=old?.parentElement
+        if(!old || !host || !stream ||
+          old.getAttribute('data-xbridge-top-video')!=='1' || !old.isConnected)return false
+        this._surfaceRebuildBusy=true
+        const replacement=old.ownerDocument.createElement('video') as HTMLVideoElement & {__xbridgePresentedFrames?:number}
+        replacement.autoplay=true
+        replacement.muted=true
+        replacement.playsInline=true
+        replacement.setAttribute('playsinline','')
+        replacement.setAttribute('webkit-playsinline','')
+        replacement.setAttribute('data-xbridge-top-video','1')
+        replacement.style.cssText=old.style.cssText
+        replacement.style.pointerEvents='none'
+        replacement.__xbridgePresentedFrames=0
+        let switched=false
+        try {
+            // Detach before attaching: old VIDAA decoders can retain their
+            // physical overlay if two elements share a MediaStream at once.
+            old.pause()
+            old.srcObject=null
+            host.replaceChild(replacement,old)
+            switched=true
+            this._element=replacement
+            replacement.srcObject=stream
+            this.beginFrameMetadataLoop(replacement)
+            replacement.addEventListener('resize',()=>{
+                try{
+                    if(window.parent!==window && window.parent.location.origin===location.origin){
+                        window.parent.postMessage({type:'xbridge-video-size',
+                          width:replacement.videoWidth,height:replacement.videoHeight,
+                          viewportWidth:window.innerWidth,viewportHeight:window.innerHeight},location.origin)
+                    }
+                }catch(_){}
+            })
+            try{
+                if(window.parent!==window && window.parent.location.origin===location.origin){
+                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:true,rebuilt:true},location.origin)
+                }
+            }catch(_){}
+            let rejected=false
+            await Promise.race([
+                Promise.resolve(replacement.play()).catch(()=>{rejected=true}),
+                new Promise<void>(resolve=>setTimeout(resolve,1900))
+            ])
+            if(rejected || replacement.paused)throw new Error('vidaa-video-play-blocked')
+            return true
+        }catch(_){
+            // Roll back if VIDAA rejects the new element. Even this fallback
+            // retains the original MediaStream and never restarts Xbox.
+            try{
+                replacement.pause()
+                replacement.srcObject=null
+                if(switched && replacement.parentElement===host)host.replaceChild(old,replacement)
+                if(!old.srcObject)old.srcObject=stream
+                this._element=old
+                this.beginFrameMetadataLoop(old)
+                void old.play().catch(()=>{})
+                if(window.parent!==window && window.parent.location.origin===location.origin){
+                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:true,rebuilt:false},location.origin)
+                }
+            }catch(_){}
+            return false
+        }finally{
+            this._surfaceRebuildBusy=false
+        }
     }
 
     getElement(){
@@ -233,6 +317,7 @@ export default class VideoComponent {
         }
         // The video can belong to the parent document. Always use our element
         // reference rather than querying only the child iframe.
+        this._frameLoopGeneration++
         if(this._element){
             this._element.pause()
             this._element.srcObject = null
