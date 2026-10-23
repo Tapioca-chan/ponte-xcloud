@@ -86,6 +86,36 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         <select id="embed-games" aria-label="Jogo selecionado" hidden></select>
       </section>
 
+      <section class="xb-game-hub" id="xb-game-hub" hidden aria-label="Página do jogo selecionado">
+       <div class="xb-game-hub-backdrop" id="xb-hub-backdrop"></div>
+       <div class="xb-game-hub-body">
+        <div class="xb-game-hub-top">
+         <span class="xb-label">XBRIDGE / PERFIL DO JOGO</span>
+         <button type="button" id="xb-hub-close" class="xb-button xb-button-muted" aria-label="Voltar à biblioteca">✕ Voltar</button>
+        </div>
+        <div class="xb-game-hub-intro">
+         <div class="xb-game-hub-cover" id="xb-hub-cover"></div>
+         <div class="xb-game-hub-text">
+          <span class="xb-label" id="xb-hub-genre">XBOX CLOUD GAMING</span>
+          <h2 id="xb-hub-name">Jogo</h2>
+          <p id="xb-hub-description">Informações do catálogo Xbox.</p>
+          <div class="xb-game-hub-metadata">
+           <span id="xb-hub-publisher">Distribuidora não informada</span>
+           <span id="xb-hub-access">Acesso Xbox a verificar</span>
+           <span id="xb-hub-time">Tempo registrado no XBridge: 0 min</span>
+          </div>
+          <div class="xb-game-hub-actions">
+           <button type="button" class="xb-button xb-button-primary" id="xb-hub-play">▶ Jogar agora</button>
+           <button type="button" class="xb-button xb-button-muted" id="xb-hub-favorite">☆ Adicionar aos favoritos</button>
+           <a class="xb-button xb-button-muted" id="xb-hub-store" href="https://www.xbox.com/pt-BR/games" target="_blank" rel="noopener noreferrer">↗ Loja Xbox</a>
+          </div>
+          <p class="xb-game-hub-help" id="xb-hub-favorite-status">Favoritos ficam neste dispositivo até conectar Discord e ativar a sincronização.</p>
+          <p class="xb-game-hub-help">A compra, o Game Pass e a disponibilidade do jogo são verificados somente pelo Xbox.</p>
+         </div>
+        </div>
+       </div>
+      </section>
+
       <aside class="xb-settings-panel" id="xb-settings-panel" hidden aria-label="Configurações de jogos">
         <div class="xb-settings-heading"><div><div class="xb-label">XBRIDGE</div><h2>Configurações</h2></div><button type="button" id="xb-settings-close" aria-label="Fechar configurações">✕</button></div>
         <p class="xb-settings-hint">Os comandos técnicos ficam aqui. Sua biblioteca permanece limpa.</p>
@@ -233,6 +263,80 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   // Reuse only titles returned by the actual Xbox Cloud catalog or account.
   // Limit artwork to 8 extra covers so VIDAA's browser remains responsive.
   function renderQuickAccess(){
+  const localFavoriteKey='xbridge:device-favorites-v1';
+  let hubGame=null;
+  const localFavorites=()=>{
+   try{const a=JSON.parse(localStorage.getItem(localFavoriteKey)||'[]');return Array.isArray(a)?a:[];}
+   catch{return [];}
+  };
+  async function updateFavoriteLabel(){
+   if(!hubGame)return;
+   let favorites=localFavorites(),synced=false;
+   try{
+    const response=await fetch('/api/console/favorites',{credentials:'same-origin'});
+    if(response.ok){const data=await response.json();favorites=data.favorites||[];synced=true;}
+   }catch(_){}
+   $('xb-hub-favorite').textContent=favorites.some(x=>x.titleId===hubGame.titleId)
+     ?'★ Remover dos favoritos':'☆ Adicionar aos favoritos';
+   $('xb-hub-favorite-status').textContent=synced
+     ?'Favoritos sincronizados com sua conta Discord.'
+     :'Favoritos salvos neste dispositivo. Conecte Discord e configure a sincronização para acessar em outros dispositivos.';
+  }
+  const normGameTitle=value=>String(value||'').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+  function openGameHub(id){
+   const game=currentGames.find(x=>x.titleId===id)||recentGames.find(x=>x.titleId===id);
+   if(!game)return;
+   selectGame(id);hubGame=game;
+   $('xb-hub-name').textContent=game.name||'Jogo';
+   $('xb-hub-genre').textContent=game.genre||'XBOX CLOUD GAMING';
+   $('xb-hub-description').textContent=game.description||'Informações adicionais não fornecidas pelo catálogo Xbox.';
+   $('xb-hub-publisher').textContent='Estúdio / Editora: '+(game.publisher||'não informado');
+   $('xb-hub-access').textContent=game.accessible===true?'Acesso à nuvem informado pelo Xbox':
+     game.accessible===false?'O Xbox não confirmou acesso':'Acesso não confirmado';
+   const art=$('xb-hub-cover');art.replaceChildren();
+   const imgSrc=safeCover(game.hero||game.tile);
+   if(imgSrc){const img=document.createElement('img');img.src=imgSrc;img.alt='Arte de '+game.name;art.appendChild(img);}
+   else{art.textContent=String(game.name||'?').slice(0,1);}
+   let minutes=0;
+   try{const times=JSON.parse(localStorage.getItem('xbridge:local-playtime-v1')||'{}');
+    minutes=Number(times[String(game.name||'').toLowerCase()]?.minutes)||0;}catch(_){}
+   $('xb-hub-time').textContent='Tempo jogado neste XBridge: '+(minutes<1?'<1 min':Math.floor(minutes/60)+'h '+Math.floor(minutes%60)+'min');
+   $('xb-hub-play').disabled=game.accessible===false;
+   const product=String(game.productId||'');
+   const slug=String(game.name||'').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+   const store=$('xb-hub-store');
+   // Xbox product IDs come from Microsoft's own catalog. Without one,
+   // open the official game store index instead of fabricating a URL.
+   store.href=/^[A-Z0-9]{12}$/i.test(product)
+    ?'https://www.xbox.com/pt-BR/games/store/'+slug+'/'+product.toUpperCase()
+    :'https://www.xbox.com/pt-BR/games';
+   store.textContent=/^[A-Z0-9]{12}$/i.test(product)?'↗ Ver na Loja Xbox':'↗ Explorar Loja Xbox';
+   show('xb-game-hub',true);
+   $('xb-hub-play').focus();
+   void updateFavoriteLabel();
+  }
+  $('xb-hub-close').onclick=()=>show('xb-game-hub',false);
+  $('xb-hub-play').onclick=()=>{
+   show('xb-game-hub',false);
+   if(!$('play').disabled)$('play').click();
+  };
+  $('xb-hub-favorite').onclick=async()=>{
+   if(!hubGame)return;
+   const game={titleId:hubGame.titleId,name:hubGame.name,tile:safeCover(hubGame.tile),
+    hero:safeCover(hubGame.hero),genre:hubGame.genre||'',publisher:hubGame.publisher||'',
+    description:hubGame.description||'',productId:hubGame.productId||''};
+   try{
+    const result=await fetch('/api/console/favorites',{method:'POST',
+     headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({game})});
+    if(result.ok){await updateFavoriteLabel();return;}
+   }catch(_){}
+   const existing=localFavorites(),has=existing.some(x=>x.titleId===game.titleId);
+   try{localStorage.setItem(localFavoriteKey,JSON.stringify(has
+    ?existing.filter(x=>x.titleId!==game.titleId):[game,...existing].slice(0,100)));}catch(_){}
+   await updateFavoriteLabel();
+  };
     const row=$('xb-quick-row');
     row.replaceChildren();
     const ids=new Set();
@@ -265,8 +369,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       button.appendChild(art);button.appendChild(label);button.appendChild(meta);
       button.onclick=()=>{
         selectGame(game.titleId);
-        $('xb-library-hero').scrollIntoView({block:'start',behavior:'auto'});
-        $('play').focus();
+        openGameHub(game.titleId);
       };
       row.appendChild(button);
     }
@@ -298,7 +401,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const tag=document.createElement('small');tag.className='xb-card-sub';
       tag.textContent=game.accessible===true?'● Acesso confirmado na nuvem':game.accessible===false?'Sem acesso confirmado':game.genre||'Acesso não verificado';
       button.appendChild(art);button.appendChild(label);button.appendChild(tag);
-      button.onclick=()=>selectGame(game.titleId);
+      button.onclick=()=>openGameHub(game.titleId);
       fragment.appendChild(button);
     }
     grid.appendChild(fragment);
@@ -327,6 +430,8 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         ?'Esta conta não informa acesso a este jogo. Confirme no Xbox oficial.'
         :'Não foi possível verificar a licença desta conta. O Xbox poderá recusar a partida.';
     $('xb-launch-status').textContent='';
+    // Send only the selected title, never the Microsoft account or tokens.
+    notifyParent({type:'xbridge-selected-title',title:String(game.name||'').slice(0,150)});
     $('play').disabled=game.accessible===false;
     const cards=document.querySelectorAll('.xb-game-card');cards.forEach(c=>{c.classList.toggle('is-selected',c.dataset.titleId===id)});
   }
@@ -349,6 +454,13 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     try{
       const result=await api('recent');
       recentGames=Array.isArray(result.games)?result.games.filter(g=>g&&g.titleId):[];
+      // Real Xbox MRU only; no made-up recent game list or entitlement.
+      notifyParent({type:'xbridge-xbox-recent',games:recentGames.slice(0,6).map(game=>({
+       titleId:String(game.titleId||'').slice(0,160),name:String(game.name||'').slice(0,150),
+       tile:safeCover(game.tile),hero:safeCover(game.hero),genre:String(game.genre||'').slice(0,90),
+       publisher:String(game.publisher||'').slice(0,80),description:String(game.description||'').slice(0,450),
+       productId:String(game.productId||'').slice(0,40)
+      }))});
       if(activeFilter==='recent')displayGames();
       renderQuickAccess();
     }catch(error){
