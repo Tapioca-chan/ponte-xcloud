@@ -181,12 +181,14 @@ async function markVisibleFreeze(){
 }
 async function rebuildNativeVideoSurfaceWithEvidence(){
  if(videoRecoveryInFlight){
+  notifyParent({type:'xbridge-native-surface-rebuild',step:'busy'});
   status('Outra recuperação da imagem já está em andamento.');
   return;
  }
  const active=player;
  const media=active?.getVideoElement?.() as HTMLVideoElement|undefined;
  if(!active || !media?.srcObject || !media.isConnected){
+  notifyParent({type:'xbridge-native-surface-rebuild',step:'no-video'});
   status('Não há uma superfície de vídeo ativa. Use Recuperar imagem primeiro.');
   return;
  }
@@ -1084,8 +1086,10 @@ if (embedded) {
    // Pure observation: no media rebind, controller packet or keyframe request.
    void markVisibleFreeze();
   } else if(event.data?.type==='xbridge-rebuild-native-video'){
-   // Opt-in experimental native DOM surface replacement after a visible freeze.
-   // Does not touch Microsoft login, WebRTC or the game controller.
+   // An unconditional receipt marker distinguishes TV relay failures from
+   // player-side decoder or compositor failures on physical VIDAA screens.
+   notifyParent({type:'xbridge-native-surface-rebuild',step:'received'});
+   traceVideo('surface-command',{stage:'surface',kind:'native-plane-rebuild',manual:true});
    void rebuildNativeVideoSurfaceWithEvidence();
   } else if(event.data?.type==='xbridge-recover-video'){
    void recoverManuallyWithEvidence();
