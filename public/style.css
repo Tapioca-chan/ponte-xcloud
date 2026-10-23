@@ -186,3 +186,227 @@ body.xbridge-embedded.stream-playing video,
 body.xbridge-embedded.stream-playing #playerContainer {
   cursor: none !important;
 }
+
+
+/* ━━━ XBRIDGE CONSOLE HOME V2 ━━━
+   Static CSS, native video rendering untouched, designed for older VIDAA.
+   Featured imagery and shelf covers come exclusively from Xbox catalog data. */
+.xbridge-embedded .xb-console{
+  --xb-bg:#070b0f;--xb-panel:#151c1c;--xb-line:rgba(204,234,218,.13);
+  --xb-accent:#b7fa73;--xb-text:#f8fff8;
+  background:radial-gradient(ellipse 80% 35% at 100% 0%,rgba(24,94,52,.12),transparent 75%),var(--xb-bg);
+  color:var(--xb-text);
+  font-family:system-ui,"Segoe UI",Arial,sans-serif;
+  padding-bottom:28px;
+}
+.xbridge-embedded .xb-app-top{
+  min-height:78px;background:#0a100e;
+  padding:14px clamp(19px,4.1vw,72px);border-bottom:1px solid var(--xb-line);
+  gap:22px;
+}
+.xbridge-embedded .xb-brand-orbit{
+  width:45px;height:45px;border-radius:15px;
+  background:linear-gradient(145deg,#b0fd65,#40ae52);
+  box-shadow:inset 0 1px rgba(255,255,255,.65),0 0 28px rgba(128,235,102,.12);
+  color:#0c250e;font-size:29px;flex:none;
+}
+.xbridge-embedded .xb-brand strong{font-size:19px;letter-spacing:-.035em;font-weight:850}
+.xbridge-embedded .xb-brand strong span{font-size:10px;color:#b0f6a5;font-weight:750;letter-spacing:.18em}
+.xbridge-embedded .xb-brand small{color:#7d9388;font-size:10px;letter-spacing:.025em}
+.xbridge-embedded .xb-console-nav{gap:6px;margin:0 auto}
+.xbridge-embedded .xb-console .xb-console-nav button{
+  border:1px solid transparent!important;border-radius:10px!important;
+  padding:10px 20px!important;color:#acbeb0;background:transparent;
+  font-size:13px!important;font-weight:700;
+}
+.xbridge-embedded .xb-console .xb-console-nav button.is-active{
+  background:#203725;color:#eaffd8;border-color:#426a40!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.08);
+}
+.xbridge-embedded .xb-console .xb-console-nav button:hover{
+  color:white;background:#25342c;
+}
+.xbridge-embedded .xb-app-tag{
+  background:#151f19;border:1px solid rgba(174,236,170,.15);
+  padding:6px 8px 6px 14px;border-radius:999px;color:#b7d8bb;font-size:11px;
+}
+.xbridge-embedded .xb-signal{width:8px;height:8px;background:#89ef84;box-shadow:0 0 9px #64d57444}
+.xbridge-embedded .xb-console .xb-gear{
+  width:34px;height:34px;background:#25362b;border:1px solid #405947;
+  font-size:18px;border-radius:50%;
+}
+.xbridge-embedded .xb-library{
+  background:radial-gradient(ellipse 75% 16% at 20% 50%,rgba(25,66,41,.14),transparent 100%),#070b0f;
+}
+.xbridge-embedded .xb-library-hero{
+  margin:17px clamp(16px,3.5vw,62px) 0;
+  height:clamp(335px,45vh,505px);
+  border:1px solid rgba(189,243,193,.18);
+  border-radius:23px;overflow:hidden;
+  background:radial-gradient(circle at 88% 40%,#255d3d,#172d27 43%,#101718 83%);
+  box-shadow:0 25px 55px #0008,inset 0 1px #ffffff0a;
+}
+.xbridge-embedded .xb-library-hero-art{right:0;width:59%;opacity:.96}
+.xbridge-embedded .xb-library-hero-art img{
+  object-fit:cover;object-position:center center;
+  filter:saturate(.98) contrast(1.05);
+}
+.xbridge-embedded .xb-library-hero:before{
+  z-index:1;width:100%;
+  background:linear-gradient(90deg,#091411 0%,#091411f5 26%,#091411df 43%,#09141180 65%,#09141118 100%);
+}
+.xbridge-embedded .xb-library-hero:after{
+  content:'';pointer-events:none;position:absolute;inset:0;z-index:1;
+  background:linear-gradient(0deg,#07110c9c,transparent 30%);
+}
+.xbridge-embedded .xb-library-hero-content{
+  z-index:2;padding:clamp(28px,5.3vh,76px) 5%;
+  width:70%;max-width:790px;
+}
+.xbridge-embedded .xb-label,.xbridge-embedded .xb-overline{
+  color:#a6db92;font-size:10px;letter-spacing:.17em;
+}
+.xbridge-embedded .xb-featured-label{
+  display:inline-flex;align-items:center;gap:10px;
+  background:rgba(13,42,23,.7);border:1px solid rgba(154,229,128,.3);
+  border-radius:99px;padding:8px 14px;
+}
+.xbridge-embedded .xb-featured-dot{width:7px;height:7px;border-radius:50%;background:#c3ff71;box-shadow:0 0 9px #a3fa73aa}
+.xbridge-embedded .xb-library-hero h1{
+  font-size:clamp(35px,5vw,76px);font-weight:850;
+  letter-spacing:-.06em;line-height:1.02;max-height:170px;
+  margin:21px 0 15px;text-shadow:0 3px 24px #0009;
+}
+.xbridge-embedded .xb-library-hero p{color:#d1ded2;font-size:14px;max-width:570px;line-height:1.5}
+.xbridge-embedded .xb-hero-actions{margin:20px 0 0;gap:16px}
+.xbridge-embedded .xb-console .xb-button-primary{
+  background:#bafa78;color:#13260e;border:1px solid #ddffad;
+  border-radius:11px;box-shadow:0 10px 27px #0006;
+}
+.xbridge-embedded .xb-console .xb-button-primary:hover{background:#d8ff9f}
+.xbridge-embedded .xb-console .xb-hero-actions .xb-button{padding:15px 28px;font-size:15px}
+.xbridge-embedded .xb-game-access{color:#a5c4a2;font-size:11px}
+.xbridge-embedded .xb-quick-access{
+  padding:22px clamp(16px,4vw,70px) 10px;max-width:100%;
+}
+.xbridge-embedded .xb-row-heading{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:16px}
+.xbridge-embedded .xb-row-heading h2{margin:5px 0 0;font-size:clamp(19px,2.15vw,29px);font-weight:800;letter-spacing:-.04em}
+.xbridge-embedded .xb-row-arrow{font-size:18px;color:#b6f48a}
+.xbridge-embedded .xb-row-hint{font-size:10px;font-weight:750;letter-spacing:.075em;color:#768c7f}
+.xbridge-embedded .xb-quick-row{
+  display:flex;align-items:stretch;gap:13px;overflow-x:auto;overflow-y:hidden;
+  padding:5px 3px 16px;overscroll-behavior-x:contain;
+  scrollbar-width:thin;
+}
+.xbridge-embedded .xb-console .xb-quick-card{
+  flex:0 0 clamp(125px,13.6vw,192px);
+  display:flex;flex-direction:column;text-align:left;
+  padding:0 0 11px;margin:0;min-width:0;
+  color:#f6fff4;background:#18201e;
+  border:1px solid #2a3831;border-radius:13px;overflow:hidden;
+  cursor:pointer;box-shadow:0 8px 18px #0005;
+}
+.xbridge-embedded .xb-quick-art{
+  width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#244c36,#0c1822);
+  overflow:hidden;position:relative;
+}
+.xbridge-embedded .xb-quick-art img{width:100%;height:100%;object-fit:cover;display:block}
+.xbridge-embedded .xb-quick-art b{font-size:55px;color:#a9f6b1;opacity:.5}
+.xbridge-embedded .xb-quick-title{
+  font-size:12px;font-weight:780;line-height:1.35;
+  margin:11px 11px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.xbridge-embedded .xb-quick-card small{
+  font-size:10px;font-weight:500;color:#8baf98;
+  padding:0 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.xbridge-embedded .xb-console .xb-quick-card:hover,
+.xbridge-embedded .xb-console .xb-quick-card:focus-visible{
+  outline:2px solid #bcff80;outline-offset:2px;
+  border-color:#caff9b;background:#233127;
+  transform:translateY(-2px);
+}
+.xbridge-embedded .xb-library-heading{
+  padding:20px clamp(16px,4vw,70px) 11px;
+}
+.xbridge-embedded .xb-library-heading h2{font-size:clamp(22px,2.5vw,32px);font-weight:800}
+.xbridge-embedded .xb-library-tools input{
+  background:#171f1b;border:1px solid #415749;border-radius:10px;color:white;
+  font-family:inherit;
+}
+.xbridge-embedded .xb-library-filters{
+  padding:8px clamp(16px,4vw,70px) 12px;gap:10px;
+}
+.xbridge-embedded .xb-console .xb-filter{
+  background:#141d19;color:#b6cbbc;border:1px solid #31463a;
+  border-radius:999px;padding:10px 17px;font-size:12px;
+}
+.xbridge-embedded .xb-console .xb-filter.is-active{
+  background:#c0fa8d;border-color:#d0ffaa;color:#17250f;
+}
+.xbridge-embedded .xb-library-notice{
+  padding:0 clamp(16px,4vw,70px) 16px;
+  color:#80978b;font-size:10px;
+}
+.xbridge-embedded .xb-results-count{
+  padding:0 clamp(16px,4vw,70px) 15px;color:#89a092;font-size:11px;
+}
+.xbridge-embedded .xb-games-grid{
+  grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;
+  padding:0 clamp(16px,4vw,70px) 30px;
+}
+.xbridge-embedded .xb-console .xb-game-card{
+  background:#161e1b;border:1px solid #2d4035;border-radius:11px;
+  padding:0 0 13px;box-shadow:0 7px 24px #0005;
+}
+.xbridge-embedded .xb-game-art{aspect-ratio:3/4}
+.xbridge-embedded .xb-card-name{font-size:13px;color:#edfced;padding:10px 11px 3px}
+.xbridge-embedded .xb-card-sub{font-size:10px;color:#88a895}
+.xbridge-embedded .xb-console .xb-game-card:hover,
+.xbridge-embedded .xb-console .xb-game-card:focus-visible,
+.xbridge-embedded .xb-console .xb-game-card.is-selected{
+  outline:2px solid #adf886;outline-offset:2px;
+  border-color:#a8f98b;box-shadow:0 8px 24px #000a;
+}
+.xbridge-embedded .xb-gateway{
+  background:radial-gradient(ellipse 85% 90% at 0% 60%,#20433255,transparent),
+  radial-gradient(ellipse at 90% 5%,#1e4d2a55,transparent),#0c1412;
+  padding:clamp(22px,4.4vw,75px);min-height:calc(100vh - 78px);
+}
+.xbridge-embedded .xb-gateway h1{font-weight:850;letter-spacing:-.06em}
+.xbridge-embedded .xb-gateway h1 em{color:#b7f591}
+.xbridge-embedded .xb-login-panel{background:#18231d;border-color:#426649;border-radius:20px}
+.xbridge-embedded .xb-settings-panel{background:#101915;border-color:#3a6947}
+@media(max-width:1390px){
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .xbridge-embedded .xb-library-hero{height:400px}
+}
+@media(max-width:950px){
+ .xbridge-embedded .xb-app-top{gap:8px}
+ .xbridge-embedded .xb-console .xb-console-nav button{padding:9px 12px!important}
+ .xbridge-embedded .xb-library-hero-content{width:83%;padding:35px 5%}
+ .xbridge-embedded .xb-library-hero{height:345px}
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .xbridge-embedded .xb-row-hint{display:none}
+}
+@media(max-width:720px){
+ .xbridge-embedded .xb-app-top{flex-wrap:wrap}
+ .xbridge-embedded .xb-console-nav{order:3;width:100%;justify-content:center}
+ .xbridge-embedded .xb-library-hero{margin:12px 12px 0;height:325px;border-radius:16px}
+ .xbridge-embedded .xb-library-hero-content{width:100%;padding:26px 18px}
+ .xbridge-embedded .xb-library-hero-art{opacity:.42;width:72%}
+ .xbridge-embedded .xb-library-hero:before{background:linear-gradient(90deg,#091411e8,transparent)}
+ .xbridge-embedded .xb-library-hero h1{font-size:34px;margin:16px 0 8px}
+ .xbridge-embedded .xb-library-hero p{font-size:12px}
+ .xbridge-embedded .xb-quick-access{padding-top:16px}
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+ .xbridge-embedded .xb-quick-card{flex-basis:135px}
+}
+@media(max-width:475px){
+ .xbridge-embedded .xb-library-hero{height:345px}
+ .xbridge-embedded .xb-library-hero h1{font-size:30px}
+ .xbridge-embedded .xb-hero-actions{flex-wrap:wrap;gap:8px;margin-top:11px}
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .xbridge-embedded .xb-app-tag{display:none}
+}
