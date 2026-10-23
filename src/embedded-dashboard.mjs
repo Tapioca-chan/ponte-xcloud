@@ -4,7 +4,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   const $ = id => document.getElementById(id);
   // This selection originated from a console game tile, not an Xbox
   // entitlement assertion. Preserve it across Microsoft device auth/reload.
-  const requestedParam=new URLSearchParams(location.search).get('game');
+  const requestedParam=typeof location!=='undefined' ? new URLSearchParams(location.search).get('game') : null;
   const requestedGame=['Fortnite','Metro Exodus','Marvel Rivals'].includes(requestedParam)
     ? requestedParam : '';
   let selectionResolved=false;
