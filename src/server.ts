@@ -124,6 +124,17 @@ const server=http.createServer(async(req,res)=>{
       // temporarily rejects requests; never erase credentials on a 5xx.
       const message=error instanceof Error?error.message:'';
       const revocation=/\binvalid_grant\b|AADSTS700082|AADSTS700084|token (?:revoked|invalidated)/i.test(message);
+      const throttled=/\b429\b|too many requests|rate.?limit|throttl/i.test(message);
+      if(throttled && !revocation){
+       // Xbox may throttle OAuth refresh after repeated deploy/reload cycles.
+       // Respect the limit rather than retrying five times immediately.
+       console.warn('[Xbox resume] upstream_rate_limited');
+       res.setHeader('Retry-After','90');
+       reply(res,429,{ok:false,remembered:true,reason:'xbox_rate_limited',
+        stage:'resume',retryable:true,retryAfterSec:90,
+        error:'O Xbox limitou temporariamente as solicitações. Sua conta continua salva. Aguarde antes de restaurar.'});
+       return;
+      }
       console.warn('[Xbox resume]',revocation?'authorization_rejected':'refresh_unavailable');
       reply(res,revocation?401:503,{ok:false,remembered:true,
        reason:revocation?'authorization_rejected':'refresh_unavailable',
