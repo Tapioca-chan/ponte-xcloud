@@ -140,7 +140,9 @@ test('hybrid Metro: recurrent WebRTC freeze signals trigger at any minute, inclu
   ...base,now:8*60*60*1000,lastAttemptAt:8*60*60*1000-90000,
   recentFreezeEvents:3
  }),{repair:true,reason:'webrtc-suspected'});
- assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:69000}).repair,false);
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:49000}).repair,false);
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,now:54000}),
+  {repair:true,reason:'webrtc-suspected'},'recover by 53s after repeated freezes');
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentFreezeEvents:1}).repair,false);
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
 });
@@ -156,13 +158,21 @@ test('hybrid Metro: idle timer works with freezeCount zero forever, with 2min in
  };
  assert.deepEqual(chooseMetroHybridSurfaceRecovery(base),
   {repair:true,reason:'timed-idle'});
- assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:119000}).repair,false);
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:79000}).repair,false);
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,now:83000}),
+  {repair:true,reason:'timed-idle'},'first idle recovery at about 80 seconds');
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:200000}).repair,false);
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:271000}),
   {repair:true,reason:'timed-idle'});
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({
-  ...base,now:7*60*60*1000,lastAttemptAt:7*60*60*1000-181000
+  ...base,now:7*60*60*1000,lastAttemptAt:7*60*60*1000-121000
  }),{repair:true,reason:'timed-idle'});
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({
+  ...base,now:600000,lastAttemptAt:541000,recentFreezeEvents:2
+ }),{repair:true,reason:'webrtc-suspected'},'later freeze recovery after about 59s');
+ assert.equal(chooseMetroHybridSurfaceRecovery({
+  ...base,now:600000,lastAttemptAt:551000,recentFreezeEvents:2
+ }).repair,false,'no loop inside 50-second cooldown');
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
 });
 
