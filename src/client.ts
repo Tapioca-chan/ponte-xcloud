@@ -1030,7 +1030,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
         && (channel as any)._dataChannel?.readyState==='open') {
         channel.reannounceStableGamepad();
       }
-    },6500);
+    },needsXboxDialogCompatibility(launchedStreamingTitle)?4000:6500);
    } else {
     original();
     channel.sendGamepadState(0,true,androidHandler);
