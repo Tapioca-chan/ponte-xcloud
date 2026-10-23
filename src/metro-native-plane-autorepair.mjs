@@ -88,3 +88,16 @@ export function shouldProbeMetroOpaqueSurfaceWithoutFreezeCount({
   !overlayOpen&&!recoveryBusy&&!alreadyTried&&attempts===0 &&
   !recentMeaningfulInput&&!(lastManualRecoveryAt>0);
 }
+
+
+// Toshiba field trace: replacing the VIDAA surface brought the picture back,
+// then the automatic follow-up detached/rebound the SAME MediaStream. A play()
+// acceptance does not prove the new physical video plane remains visible.
+// Once the first native plane succeeds, prefer stability over speculative
+// automatic rebinds. Manual recovery stays available, and other games retain
+// their original policies.
+export function shouldProtectRecoveredMetroSurface({
+ title='',nativeSurfaceRecovered=false
+}={}){
+ return needsXboxDialogCompatibility(title) && nativeSurfaceRecovered===true;
+}
