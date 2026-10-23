@@ -113,6 +113,13 @@ export default class xCloudPlayer {
         }
     }
 
+    // Only the real HTML-video renderer may rebuild the VIDAA native plane.
+    // WebRTC, audio and controller channels are never recreated here.
+    async rebuildNativeVideoSurface():Promise<boolean> {
+        if(this._isDestoyed || !(this._videoComponent instanceof VideoComponent))return false
+        return this._videoComponent.rebuildNativeSurface()
+    }
+
     toggleDebugOverlay() {
         if(this._videoComponent){
             this._videoComponent.toggleDebugOverlay()
