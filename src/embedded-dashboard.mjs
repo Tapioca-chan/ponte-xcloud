@@ -266,7 +266,6 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   }
   // Reuse only titles returned by the actual Xbox Cloud catalog or account.
   // Limit artwork to 8 extra covers so VIDAA's browser remains responsive.
-  function renderQuickAccess(){
   const localFavoriteKey='xbridge:device-favorites-v1';
   let savedFavorites=[];
   let hubGame=null;
@@ -352,6 +351,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
    await refreshFavoriteGames();await updateFavoriteLabel();
    if(activeFilter==='favorites')displayGames();
   };
+  function renderQuickAccess(){
     const row=$('xb-quick-row');
     row.replaceChildren();
     const ids=new Set();
