@@ -546,10 +546,12 @@ function startVideoHealth(){
     visualStillMs:Math.round(visual?.ageMs||0),
     signalStatus:result.kind,
     nativeBlindMetro:Boolean(nativeBlind && needsXboxDialogCompatibility(launchedStreamingTitle)),
+    // Earliest timer opportunity; detector may recover sooner and idle /
+    // controller state may defer the timed fallback.
     nativeBlindNextSec:nativeBlind&&nativePlaneFirstVideoAt?
-     Math.max(0,Math.ceil(((metroRecoveryAttempts>0?
-      Math.max(nativePlaneFirstVideoAt+120000,metroLastRecoveryAt+240000):
-      nativePlaneFirstVideoAt+120000)-now)/1000)):null,
+     Math.max(0,Math.ceil((Math.max(metroLastRecoveryAt,lastManualRecoveryAt)>0?
+      Math.max(metroLastRecoveryAt,lastManualRecoveryAt)+180000:
+      nativePlaneFirstVideoAt+120000)-now)/1000):null,
     nativeBlindAttempts:metroRecoveryAttempts,
     recurrentWebRtcFreezes:freezeEvidence.recentEvents,
     recurrentEvidenceStatus:freezeEvidence.reason
