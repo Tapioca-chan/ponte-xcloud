@@ -476,6 +476,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       notifyParent({type:'xbridge-xbox-recent',games:recentGames.slice(0,6).map(game=>({
        titleId:String(game.titleId||'').slice(0,160),name:String(game.name||'').slice(0,150),
        tile:safeCover(game.tile),hero:safeCover(game.hero),genre:String(game.genre||'').slice(0,90),
+       ...(typeof game.accessible==='boolean'?{accessible:game.accessible}:{}),
        publisher:String(game.publisher||'').slice(0,80),description:String(game.description||'').slice(0,450),
        productId:String(game.productId||'').slice(0,40)
       }))});
@@ -492,6 +493,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   async function finishAuth(){
     if(authorized)return;
     authorized=true;stopPolling();show('xb-auth',false);show('xb-library',true);
+    notifyParent({type:'xbridge-xbox-auth',authenticated:true});
     $('xb-auth-badge').textContent='Xbox conectada';
     authInfo('Conta conectada.');
     status('Conta Xbox conectada. Carregando jogos reais…');
@@ -529,6 +531,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const directQr=typeof data.verification_uri_complete==='string' && data.verification_uri_complete
         ? allowOfficialLink(data.verification_uri_complete) : authUri;
       $('code').textContent=data.user_code;
+      notifyParent({type:'xbridge-xbox-auth',authenticated:false,code:data.user_code,url:authUri});
       const link=$('xb-ms-link');link.href=authUri;link.textContent=new URL(authUri).hostname+new URL(authUri).pathname+' ↗';
       show('xb-authorization',true);
       try{await QRCode.toCanvas($('xb-ms-qr'),directQr,{width:176,margin:1,color:{dark:'#07130e',light:'#ffffff'}})}
@@ -547,6 +550,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   $('verify').onclick=()=>{void pollAuth()};
   window.addEventListener('pagehide',stopPolling,{once:true});
   return {
+    beginAuth(){if(!authorized)return beginAuth();return Promise.resolve();},
     ready(){ $('login').disabled=false; $('xb-login-feedback').textContent='Pronto. Autorize com sua conta Microsoft.'; },
     restored(){ return finishAuth(); },
     error(message){ $('xb-login-feedback').textContent=message; }
