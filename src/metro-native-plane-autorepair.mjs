@@ -44,15 +44,19 @@ export function shouldEscalateMetroOpaqueRepair(a){
 // attempt on pause/play. The caller must still have established an actual
 // WebRTC stall/freeze signal. This is never a periodic blind timer.
 export function shouldPreferNativeMetroSurface({
- title,nativePlaneUnobservable=false,firstVideoAt=0,now=0,
- freezeCount=0,hasVideo=false,videoReadyState=0,connection='',
- overlayOpen=false,recoveryBusy=false,alreadyTried=false
+ title,nativePlaneUnobservable=false,visualFrozen=false,presentationStalled=false,
+ firstVideoAt=0,now=0,freezeCount=0,hasVideo=false,videoReadyState=0,
+ connection='',overlayOpen=false,recoveryBusy=false,alreadyTried=false
 }={}){
  const age=now-firstVideoAt;
+ // A native plane may still return a few compositor callbacks or readable
+ // pixels before becoming stuck. An observed visual stall or three successive
+ // decoded-but-not-presented polls is stronger than a lone freezeCount.
+ const directPresentationEvidence=visualFrozen===true || presentationStalled===true;
  return needsXboxDialogCompatibility(title) &&
-  nativePlaneUnobservable===true && firstVideoAt>0 &&
-  age>=45000 && age<=255000 &&
-  Number.isFinite(freezeCount) && freezeCount>0 &&
+  (nativePlaneUnobservable===true || directPresentationEvidence) &&
+  firstVideoAt>0 && age>=45000 && age<=255000 &&
+  (directPresentationEvidence || Number.isFinite(freezeCount) && freezeCount>0) &&
   hasVideo===true && videoReadyState>=2 &&
   (connection==='connected'||connection==='completed') &&
   !overlayOpen && !recoveryBusy && !alreadyTried;
