@@ -286,7 +286,17 @@ const server=http.createServer(async(req,res)=>{
       room.titlesFetched=Date.now();
      }
      const titles:any[]=room.titlesCache;
-     const page=titles.slice(offset,offset+limit);
+     // Resolve featured console tiles against ACTUAL cloud titles only.
+     // Never synthesize titleIds or infer license from editorial home art.
+     const search=typeof body.search==='string'?body.search.trim().slice(0,80):'';
+     const norm=(v:any)=>String(v||'').normalize('NFD')
+       .replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+     const needle=norm(search);
+     const matches=needle?titles.filter(t=>[
+       t?.title,t?.name,t?.details?.title,t?.details?.name,
+       t?.details?.localizedTitle,t?.details?.displayName
+     ].some(v=>norm(v).includes(needle))):titles;
+     const page=matches.slice(offset,offset+(needle?Math.min(12,limit):limit));
      const ids=[...new Set(page.map(t=>t?.details?.productId).filter((id):id is string=>typeof id==='string' && /^[a-z0-9]{8,20}$/i.test(id)))];
      let products:any={};
      if(ids.length){
@@ -308,7 +318,9 @@ const server=http.createServer(async(req,res)=>{
       }
      }
      const games=page.map(t=>gameCard(t,products[t?.details?.productId]||null));
-     reply(res,200,{games,total:titles.length,offset,next:offset+page.length<titles.length?offset+page.length:null,source:'xbox'});
+     reply(res,200,{games,total:matches.length,offset,
+      next:offset+page.length<matches.length?offset+page.length:null,
+      source:'xbox',searchMatched:needle?matches.length:null});
      return;
     }
 if(action==='recent'){
