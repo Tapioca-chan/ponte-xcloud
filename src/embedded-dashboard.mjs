@@ -4,9 +4,12 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   const $ = id => document.getElementById(id);
   // This selection originated from a console game tile, not an Xbox
   // entitlement assertion. Preserve it across Microsoft device auth/reload.
-  const requestedParam=typeof location!=='undefined' ? new URLSearchParams(location.search).get('game') : null;
-  const requestedGame=['Fortnite','Metro Exodus','Marvel Rivals'].includes(requestedParam)
-    ? requestedParam : '';
+  const requestedParam=typeof location!=='undefined'?new URLSearchParams(location.search).get('game'):null;
+  // Parent TV offers only featured titles or REAL Xbox MRU titles.
+  // Treat this solely as a display/search hint; validate against Xbox
+  // catalog IDs before ever passing a game to the streaming API.
+  const requestedGame=typeof requestedParam==='string'&&requestedParam.length<=150
+    && !/[<>\u0000-\u001f]/.test(requestedParam)?requestedParam:'';
   let selectionResolved=false;
   $('tv').innerHTML = `
     <div class="xb-console">
