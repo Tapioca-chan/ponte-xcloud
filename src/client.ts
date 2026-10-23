@@ -4,7 +4,7 @@ import {serializeLocalIceCandidates} from './ice-bridge.mjs';
 import {compactFrame,acceptsParent} from './xbridge-input.mjs';
 import {MenuInputEdges,selectMenuTarget} from './menu-input.mjs';
 import {classifyStreamHealth} from './stream-health.mjs';
-import {needsXboxDialogCompatibility} from './game-compat.mjs';
+import {needsXboxDialogCompatibility,shouldPreallocateVideaSurface} from './game-compat.mjs';
 import {VideoFreezeWatchdog,sampleVideoLuma,canAutoRecoverStream,classifyAudioVideoStall} from './video-freeze-watchdog.mjs';
 import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 import {MediaTransitionWatch} from './video-transition-health.mjs';
@@ -984,6 +984,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   lastManualRecoveryAt=0;
   const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
+  (player as any).__xbridgePreallocateVideaSurface=shouldPreallocateVideaSurface(launchedName);
   player.init();
   if(metroSystemDialogCompat)announce('Metro Exodus: monitorando possíveis confirmações Xbox.');
   clearInputHealth();
