@@ -7,9 +7,21 @@ import Auth from '../vendor/packages/platform/src/controller/auth';
 import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
+import {reclaimIdleRooms} from './room-capacity.mjs';
 import {saveRemember,loadRemember,revokeRemember,persistentConfigured} from './remember-store.mjs';
 import {normalizeMicrosoftUserToken} from './msal-token-shape.mjs';
 const rooms=new Map<string,any>();
+const MAX_ROOMS=20;
+function ensureRoomCapacity(res:any,action:string):boolean{
+ const removed=reclaimIdleRooms(rooms,Date.now(),MAX_ROOMS);
+ if(removed)console.info('[Player room capacity]',action,'reclaimed',removed,'abandoned rooms');
+ if(rooms.size<MAX_ROOMS)return true;
+ console.warn('[Player room capacity]',action,'blocked; active-or-pending rooms',rooms.size);
+ res.setHeader('Retry-After','60');
+ reply(res,429,{error:'Limite temporário de sessões do XBridge. Nenhuma conta foi desconectada. Aguarde um minuto antes de tentar novamente.',
+  stage:action,reason:'xbridge_room_capacity',retryable:true,retryAfterSec:60});
+ return false;
+}
 // Opaque browser identity. No Microsoft passwords/tokens are sent to the TV.
 // Durable encrypted authorization is persisted in an isolated MongoDB Atlas cluster.
 const remembered=new Map<string,{user:any;token:any;host:string;lastRefresh:number;expires:number}>();
@@ -28,7 +40,7 @@ function clearRememberCookie(res:any) {
 }
 function allocateRoom():any {
  const id=secret(),tvKey=secret(),phoneKey=secret();
- const room={id,tvKey,phoneKey,created:Date.now(),sockets:new Map(),busy:false};
+ const room={id,tvKey,phoneKey,created:Date.now(),touched:Date.now(),sockets:new Map(),busy:false};
  rooms.set(id,room);
  return room;
 }
@@ -53,7 +65,7 @@ const server=http.createServer(async(req,res)=>{
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>131072){reply(res,413,{error:'Pedido grande demais'});return;}}
    const body=JSON.parse(raw||'{}');const action=u.pathname.slice(5);actionName=action;
    if(action==='create'){
-    if(rooms.size>=20){reply(res,429,{error:'Limite de salas; tente depois'});return;}
+    if(!ensureRoomCapacity(res,'create'))return;
     const room=allocateRoom();reply(res,200,{id:room.id,tvKey:room.tvKey,phoneKey:room.phoneKey});return;
    }
    if(action==='resume'){
@@ -86,7 +98,7 @@ const server=http.createServer(async(req,res)=>{
       rooms.delete(existingId);
      }
     }
-    if(rooms.size>=20){reply(res,429,{error:'Limite de sessões Xbox'});return;}
+    if(!ensureRoomCapacity(res,'resume'))return;
     if(!saved.token || Date.now()-saved.lastRefresh>25*60*1000){
      try{
       // xal-node returns UserToken {data:{access_token,...}} from refresh,
@@ -128,6 +140,7 @@ const server=http.createServer(async(req,res)=>{
     reply(res,200,{ok:true,remembered:true,id:room.id,tvKey:room.tvKey});return;
    }
    const room=rooms.get(body.room);if(!room||req.headers.authorization!=='Bearer '+room.tvKey){reply(res,401,{error:'Sala inválida ou expirada'});return;}
+   room.touched=Date.now();
    if(room.busy){reply(res,409,{error:'Aguarde a operação atual'});return;}
    room.busy=true;
    try {
@@ -362,7 +375,7 @@ server.on('upgrade',(req,socket,head)=>{
   ws.on('message',data=>{
    try{const msg=JSON.parse(data.toString());
     if(!room){const candidate=rooms.get(msg.room);if(!candidate||!['tv','phone'].includes(msg.role)||msg.key!==(msg.role==='tv'?candidate.tvKey:candidate.phoneKey)){ws.close();return;}
-     role=msg.role;room=candidate;room.sockets.get(role)?.close();room.sockets.set(role,ws);clearTimeout(timeout);ws.send(JSON.stringify({type:'connected'}));return;}
+     role=msg.role;room=candidate;room.touched=Date.now();room.sockets.get(role)?.close();room.sockets.set(role,ws);clearTimeout(timeout);ws.send(JSON.stringify({type:'connected'}));return;}
     if(role==='phone'&&msg.type==='frame'){
      if(Date.now()-last<10)return;last=Date.now();const tv=room.sockets.get('tv');if(tv?.readyState===WebSocket.OPEN&&tv.bufferedAmount<16384)tv.send(JSON.stringify({type:'frame',frame:sanitize(msg.frame)}));
     }
