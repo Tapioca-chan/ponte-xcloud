@@ -35,13 +35,13 @@ export default class VideoComponent {
             // Ordinary standalone player remains supported.
         }
         const videoElement = renderDocument.createElement('video')
-        // Prepare Metro's native VIDAA video plane BEFORE setting srcObject.
+        // Prepare compatible games' native VIDAA video plane BEFORE setting srcObject.
         // Initial media attachment can allocate the hardware/software plane
         // at whatever layout size is present on the first frame. Late physical
         // resizing after the xCloud preroll can leave a stale visible plane.
         // This never detaches a frame or modifies Microsoft/Xbox handshakes.
-        const metroPreflight = topLevel && Boolean((this._player as any).__xbridgeShowMessageDialogs)
-        if(!metroPreflight) videoElement.srcObject = stream
+        const nativePlanePreflight = topLevel && Boolean((this._player as any).__xbridgePreallocateVideaSurface)
+        if(!nativePlanePreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
         videoElement.playsInline = true
@@ -52,7 +52,7 @@ export default class VideoComponent {
         videoElement.style.objectFit = 'contain'
         videoElement.style.backgroundColor = 'black'
         videoElement.style.touchAction = 'none'
-        if(metroPreflight) {
+        if(nativePlanePreflight) {
             // Match the parent's already working VIDAA physical-plane mode
             // before its native decoder ever sees the WebRTC MediaStream.
             try {
@@ -115,10 +115,10 @@ export default class VideoComponent {
             force(videoElement,'display','block')
             force(videoElement,'position','absolute')
             force(videoElement,'inset','0')
-            // Do not overwrite Metro's preallocated native-plane geometry on
+            // Do not overwrite a preallocated native-plane geometry on
             // the first decoded frame. The TV parent owns sizing throughout
             // ad -> game transitions and may be 1920x1080 in a 1280x720 DOM.
-            if(!metroPreflight) {
+            if(!nativePlanePreflight) {
                 force(videoElement,'width','100%')
                 force(videoElement,'height','100%')
                 force(videoElement,'object-position','center center')
@@ -151,7 +151,7 @@ export default class VideoComponent {
             } catch (_) {}
         })
         element.appendChild(this._element)
-        if(metroPreflight){
+        if(nativePlanePreflight){
             // Parent element and full-size CSS are now ready; only *now*
             // create the stream-to-native-decoder binding on older VIDAA.
             this._element.srcObject=stream
