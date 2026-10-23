@@ -3,7 +3,7 @@
 // The browser is redirected to the canonical same-origin TV+Android app
 // rather than embedding it cross-origin (which would break controller/iframe
 // and Microsoft remember-cookie behavior).
-export const CONSOLE_ORIGIN='https://xcloud-tv.onrender.com';
+export const CONSOLE_ORIGIN='https://xbridge-hnd9.onrender.com';
 
 export function isDirectConsoleNavigation({pathname='/',method='GET',proxyMarker=''}={}){
  return method==='GET' && (pathname==='/'||pathname==='/index.html') &&
