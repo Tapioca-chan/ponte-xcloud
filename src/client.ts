@@ -17,6 +17,7 @@ import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
 import {decoderSummary} from './decoder-health.mjs';
+import {compareFreezeEvidence} from './freeze-evidence.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 const parentOrigin = 'https://xcloud-tv.onrender.com';
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
@@ -35,6 +36,8 @@ let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,vide
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let queuedMetroIntroRecovery=false;
 let lastVideoTelemetryAt=0;
+let freezeMarkerSerial=0;
+let activeFreezeMarker:{serial:number;baseline:any}|null=null;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
@@ -88,6 +91,7 @@ function stopVideoHealth(){
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
+ freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
  metroStartupKeyframes.reset();
@@ -96,6 +100,98 @@ function stopVideoHealth(){
 // session IDs, room codes, Microsoft credentials or token content.
 function traceVideo(phase:string,details:Record<string,unknown>={}){
  notifyParent({type:'xbridge-video-telemetry',phase,...details});
+}
+// User confirmation supplies the missing visual evidence on VIDAA.
+// The diagnostic does not copy pixels, raw packets, session IDs or credentials.
+async function captureFreezeSample():Promise<any|null>{
+ const active=player;
+ const pc=active?._peerConnection;
+ const media=active?.getVideoElement?.() as
+  (HTMLVideoElement & {__xbridgePresentedFrames?:number})|undefined;
+ if(!pc || !media)return null;
+ try{
+  const stats=await pc.getStats();
+  if(player!==active)return null;
+  let inbound:any=null,audio:any=null;
+  stats.forEach((x:any)=>{
+   if(x.type==='inbound-rtp' && (x.kind==='video'||x.mediaType==='video'))inbound=x;
+   if(x.type==='inbound-rtp' && (x.kind==='audio'||x.mediaType==='audio'))audio=x;
+  });
+  const safe=(n:any)=>typeof n==='number'&&Number.isFinite(n)&&n>=0?n:null;
+  const presented=safe(media.__xbridgePresentedFrames);
+  const quality=media.getVideoPlaybackQuality?.();
+  const codec=stats.get(inbound?.codecId)?.mimeType;
+  return {
+   at:Date.now(),decoded:safe(inbound?.framesDecoded),received:safe(inbound?.packetsReceived),
+   audioReceived:safe(audio?.packetsReceived),freezeCount:safe(inbound?.freezeCount),
+   fps:safe(inbound?.framesPerSecond),presented:presented!==null&&presented>0?presented:null,
+   currentTime:safe(media.currentTime),ready:media.readyState>=2,
+   paused:media.paused,width:safe(media.videoWidth),height:safe(media.videoHeight),
+   dropped:safe(quality?.droppedVideoFrames),totalFrames:safe(quality?.totalVideoFrames),
+   codec:typeof codec==='string'?codec:'unknown'
+  };
+ }catch(_){return null;}
+}
+function reportFreezeSample(phase:string,source:string,sample:any,comparison:any=null){
+ traceVideo(phase,{
+  source,capture:sample?'ok':'unavailable',
+  metro:needsXboxDialogCompatibility(launchedStreamingTitle),
+  decoded:sample?.decoded,received:sample?.received,
+  audioReceived:sample?.audioReceived,freezeCount:sample?.freezeCount,
+  fps:sample?.fps,presented:sample?.presented,mediaTime:sample?.currentTime,
+  videoWidth:sample?.width,videoHeight:sample?.height,
+  ready:sample?.ready,paused:sample?.paused,dropped:sample?.dropped,
+  totalFrames:sample?.totalFrames,codec:sample?.codec,
+  verdict:comparison?.verdict,decodedRise:comparison?.decodedRise,
+  receivedRise:comparison?.receivedRise,presentedRise:comparison?.presentedRise,
+  mediaTimeRise:comparison?.currentTimeRise,elapsedSec:comparison?.elapsedSec
+ });
+}
+async function markVisibleFreeze(){
+ const serial=++freezeMarkerSerial;
+ const snapshot=await captureFreezeSample();
+ if(serial!==freezeMarkerSerial)return;
+ if(!snapshot){
+  reportFreezeSample('freeze-marker','user',null);
+  status('Marcador recebido, mas o WebRTC ainda não disponibilizou estatísticas do vídeo.');
+  return;
+ }
+ activeFreezeMarker={serial,baseline:snapshot};
+ reportFreezeSample('freeze-marker','user',snapshot);
+ notifyParent({type:'xbridge-freeze-marked',step:'marked'});
+ status('Imagem travada marcada. Observando o WebRTC por 8 s sem interromper o vídeo.');
+ setTimeout(async()=>{
+  if(serial!==freezeMarkerSerial || activeFreezeMarker?.serial!==serial)return;
+  const after=await captureFreezeSample();
+  if(serial!==freezeMarkerSerial || activeFreezeMarker?.serial!==serial)return;
+  activeFreezeMarker=null;
+  const compare=compareFreezeEvidence(snapshot,after);
+  reportFreezeSample('freeze-followup','user',after,compare);
+  notifyParent({type:'xbridge-freeze-marked',step:'measured',verdict:compare.verdict});
+  status('Diagnóstico da imagem congelada registrado. Pode usar Recuperar imagem se necessário.');
+ },8000);
+}
+async function recoverManuallyWithEvidence(){
+ if(videoRecoveryInFlight)return;
+ ++freezeMarkerSerial;
+ const marker=activeFreezeMarker;
+ activeFreezeMarker=null;
+ const before=await captureFreezeSample();
+ if(marker){
+  reportFreezeSample('freeze-followup','before-recovery',before,
+   compareFreezeEvidence(marker.baseline,before));
+ }else{
+  reportFreezeSample('freeze-marker','recovery',before);
+ }
+ // Keep the proven manual rebind. Snapshots are informational only.
+ visualWatchdog?.reset();
+ lastManualRecoveryAt=Date.now();
+ const recovered=await recoverXboxVideoLocally('manual');
+ setTimeout(async()=>{
+  const after=await captureFreezeSample();
+  reportFreezeSample('freeze-after-recovery',recovered?'recovery-ok':'recovery-failed',
+   after,compareFreezeEvidence(before,after));
+ },4000);
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -917,13 +1013,11 @@ if (embedded) {
    // Explicit user action: preserve Xbox account and game session, only
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
+  } else if(event.data?.type==='xbridge-mark-frozen'){
+   // Pure observation: no media rebind, controller packet or keyframe request.
+   void markVisibleFreeze();
   } else if(event.data?.type==='xbridge-recover-video'){
-   // Reset the visual baseline and delay optional maintenance after manual use.
-   visualWatchdog?.reset();
-   lastManualRecoveryAt=Date.now();
-   // The manual action remains available even if automated diagnostics cannot
-   // measure the video frame compositor on this version of VIDAA.
-   void recoverXboxVideoLocally('manual');
+   void recoverManuallyWithEvidence();
   } else if(event.data?.type==='xbridge-resume-media'){
    // A user gesture in the TV settings may unlock media on VIDAA.
    void (async()=>{
