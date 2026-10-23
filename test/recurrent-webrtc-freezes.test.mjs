@@ -44,3 +44,13 @@ test('evidence expires after window and does not trigger without two recent obse
  assert.equal(poll(w,185000,2).suspected,false);
  assert.equal(poll(w,191000,3).suspected,true);
 });
+
+test('faster Toshiba polls detect two separated post-45s freezes rather than waiting 60s',()=>{
+ const w=new RecurrentWebRtcFreezeWatch();
+ assert.equal(poll(w,40000,0).suspected,false);
+ assert.equal(poll(w,44000,1).suspected,false,'ad/preroll freeze remains below grace');
+ assert.equal(poll(w,47000,2).suspected,false,'first eligible interval');
+ assert.equal(poll(w,51000,3).suspected,true,'second eligible interval');
+ w.acknowledgeRecovery();
+ assert.equal(poll(w,55000,3).suspected,false,'no immediate retry on same freeze counter');
+});
