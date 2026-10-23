@@ -535,7 +535,8 @@ function startVideoHealth(){
     now,freezeCount:sample.freezeCount,
     decodedDelta:videoPipeline.decodedDelta,
     receivedDelta:videoPipeline.receivedDelta,
-    firstVideoAt:nativePlaneFirstVideoAt
+    firstVideoAt:nativePlaneFirstVideoAt,
+    fastStart:needsXboxDialogCompatibility(launchedStreamingTitle)
    });
    const recurringMetroFreezes=freezeEvidence.suspected &&
     needsXboxDialogCompatibility(launchedStreamingTitle) && !gameOverlayOpen;
