@@ -11,15 +11,25 @@ export class MenuInputEdges {
     const result=[];
     const leftY=Number(current.LeftThumbYAxis)||0;
     const leftX=Number(current.LeftThumbXAxis)||0;
-    const direction=pressed('DPadUp')||leftY<-.72?'up'
-      :pressed('DPadDown')||leftY>.72?'down'
-      :pressed('DPadLeft')||leftX<-.72?'left'
-      :pressed('DPadRight')||leftX>.72?'right':'';
-    if(direction && (direction!==this.lastDirection||now-this.lastMoved>270)){
+    const rightY=Number(current.RightThumbYAxis)||0;
+    const rightX=Number(current.RightThumbXAxis)||0;
+    const direction=pressed('DPadUp')||leftY<-.58?'up'
+      :pressed('DPadDown')||leftY>.58?'down'
+      :pressed('DPadLeft')||leftX<-.58?'left'
+      :pressed('DPadRight')||leftX>.58?'right'
+      :rightY<-.82?'up':rightY>.82?'down'
+      :rightX<-.82?'left':rightX>.82?'right':'';
+    if(direction && (direction!==this.lastDirection||now-this.lastMoved>160)){
       result.push(direction);this.lastMoved=now;
     }
     this.lastDirection=direction;
-    for(const [name,action] of [['A','confirm'],['B','back'],['Menu','menu']]){
+    for(const [name,action] of [
+      ['A','confirm'],['B','back'],['Menu','menu'],['Nexus','menu'],
+      ['View','back'],['X','library'],['Y','favorites'],
+      ['LeftShoulder','previousTab'],['RightShoulder','nextTab'],
+      ['LeftTrigger','recent'],['RightTrigger','library'],
+      ['LeftThumb','fullscreen'],['RightThumb','settings']
+    ]){
       const on=pressed(name);
       if(on&&!this.previous[name])result.push(action);
       this.previous[name]=on;
