@@ -61,3 +61,30 @@ export function shouldPreferNativeMetroSurface({
   (connection==='connected'||connection==='completed') &&
   !overlayOpen && !recoveryBusy && !alreadyTried;
 }
+
+
+// A real Toshiba/VIDAA case (2026-10-23) showed a user-confirmed static
+// picture while H.264 advanced ~30fps, no compositor callbacks were exposed
+// and WebRTC freezeCount remained ZERO. A count-based detector is powerless.
+// This is explicitly a *compatibility probe*, never a claim to detect frozen
+// pixels. Recreate the native plane at most once during Metro's opening,
+// after a long preroll grace, and never during recent gameplay input.
+export function shouldProbeMetroOpaqueSurfaceWithoutFreezeCount({
+ title='',nativePlaneUnobservable=false,firstVideoAt=0,now=0,
+ decodedDelta=null,receivedDelta=null,hasVideo=false,videoReadyState=0,
+ videoPaused=false,connection='',overlayOpen=false,recoveryBusy=false,
+ attempts=0,alreadyTried=false,lastManualRecoveryAt=0,enabled=true,
+ recentMeaningfulInput=false
+}={}){
+ const age=now-firstVideoAt;
+ return needsXboxDialogCompatibility(title) && enabled===true &&
+  nativePlaneUnobservable===true &&
+  Number.isFinite(firstVideoAt)&&firstVideoAt>0&&Number.isFinite(now) &&
+  age>=125000&&age<=235000 &&
+  Number.isFinite(decodedDelta)&&decodedDelta>=30 &&
+  Number.isFinite(receivedDelta)&&receivedDelta>0 &&
+  hasVideo===true&&videoReadyState>=2&&!videoPaused &&
+  (connection==='connected'||connection==='completed') &&
+  !overlayOpen&&!recoveryBusy&&!alreadyTried&&attempts===0 &&
+  !recentMeaningfulInput&&!(lastManualRecoveryAt>0);
+}
