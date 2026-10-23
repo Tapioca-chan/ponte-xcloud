@@ -569,3 +569,49 @@ body.xbridge-embedded{background:#070c17!important;color:#f3f7ff!important;font-
  .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;padding:0 16px 18px!important}
  .xbridge-embedded .xb-library-heading,.xbridge-embedded .xb-library-filters,.xbridge-embedded .xb-results-count,.xbridge-embedded .xb-library-notice{padding-left:16px!important;padding-right:16px!important}
 }
+
+
+/* Xbox data-backed game hub — modern console overlay instead of selecting
+   a card and dumping the user back at the old library splash. */
+.xbridge-embedded .xb-game-hub[hidden]{display:none!important}
+.xbridge-embedded .xb-game-hub{
+ position:fixed;inset:0;z-index:60;overflow-y:auto;
+ background:linear-gradient(140deg,#070b14f7,#101d33f5 65%,#070b14fa);
+ color:#f6f9ff;isolation:isolate}
+.xbridge-embedded .xb-game-hub-backdrop{position:absolute;inset:0;pointer-events:none;
+ background:radial-gradient(ellipse at 82% 23%,#6795df30,transparent 60%);}
+.xbridge-embedded .xb-game-hub-body{position:relative;z-index:1;padding:clamp(23px,4.5vw,76px);
+ max-width:1520px;margin:0 auto}
+.xbridge-embedded .xb-game-hub-top{display:flex;justify-content:space-between;align-items:center;gap:20px}
+.xbridge-embedded .xb-game-hub-top button{border-radius:9px!important}
+.xbridge-embedded .xb-game-hub-intro{display:grid;grid-template-columns:minmax(210px,.75fr) minmax(0,1.55fr);gap:clamp(24px,5vw,90px);
+ margin-top:clamp(26px,6vh,75px);align-items:center}
+.xbridge-embedded .xb-game-hub-cover{aspect-ratio:3/4;border-radius:16px;overflow:hidden;background:radial-gradient(circle at 70% 24%,#5881be,#17223c 65%);
+ border:1px solid #e2edff4d;box-shadow:0 24px 75px #000a;display:flex;align-items:center;
+ justify-content:center;font-size:110px;font-weight:900;color:#d0ecff9e}
+.xbridge-embedded .xb-game-hub-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.xbridge-embedded .xb-game-hub-text h2{font-size:clamp(40px,5.7vw,88px);line-height:1.01;
+ font-weight:900;letter-spacing:-.075em;margin:14px 0 19px;max-width:880px;text-shadow:0 8px 36px #0008}
+.xbridge-embedded .xb-game-hub-text>p{font-size:15px;line-height:1.7;color:#bdcee1;
+ max-width:650px;margin:0 0 18px}
+.xbridge-embedded .xb-game-hub-metadata{display:grid;gap:9px;margin:20px 0 29px;
+ color:#b3c5d9;font-size:12px}
+.xbridge-embedded .xb-game-hub-metadata>span{padding-left:16px;border-left:2px solid #bff7a8}
+.xbridge-embedded .xb-game-hub-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.xbridge-embedded .xb-game-hub-actions .xb-button{margin:0!important;display:inline-flex;
+ align-items:center;justify-content:center;padding:15px 19px!important;
+ text-decoration:none;font-size:13px!important}
+.xbridge-embedded .xb-game-hub-help{font-size:11px!important;color:#91a9bf!important;
+ line-height:1.5!important;margin-top:15px!important}
+@media(max-width:800px){
+ .xbridge-embedded .xb-game-hub-intro{grid-template-columns:150px minmax(0,1fr);gap:20px}
+ .xbridge-embedded .xb-game-hub-text h2{font-size:37px}
+ .xbridge-embedded .xb-game-hub-cover{font-size:50px}
+ .xbridge-embedded .xb-game-hub-text>p{font-size:12px}
+ .xbridge-embedded .xb-game-hub-actions .xb-button{padding:11px!important;font-size:11px!important}
+}
+@media(max-width:560px){
+ .xbridge-embedded .xb-game-hub-intro{grid-template-columns:1fr}
+ .xbridge-embedded .xb-game-hub-cover{max-width:160px}
+ .xbridge-embedded .xb-game-hub-text h2{font-size:36px}
+}
