@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {needsXboxDialogCompatibility} from '../src/game-compat.mjs';
+import {needsXboxDialogCompatibility,shouldPreallocateVideaSurface} from '../src/game-compat.mjs';
 import {shouldRebindMetroVideo,shouldAttemptMetroRecovery,shouldNudgeMetroBoot} from '../src/metro-recovery.mjs';
 
 test('the Xbox system-dialog compatibility experiment is limited to Metro Exodus',()=>{
@@ -51,4 +51,14 @@ test('Metro performs one early boot repair even while user holds the controller'
  assert.equal(shouldNudgeMetroBoot({...base,connection:'completed'}),true);
  assert.equal(shouldNudgeMetroBoot({...base,title:'Marvel Rivals'}),false);
  assert.equal(shouldNudgeMetroBoot({...base,title:'Metro 2033 Redux'}),false);
+});
+
+test('Fortnite native VIDAA preallocation is independent of Metro Xbox system dialogs',()=>{
+ assert.equal(shouldPreallocateVideaSurface('Fortnite'),true);
+ assert.equal(shouldPreallocateVideaSurface('FORTNITE'),true);
+ assert.equal(shouldPreallocateVideaSurface('Metro Exodus'),true);
+ assert.equal(shouldPreallocateVideaSurface('Marvel Rivals'),false);
+ assert.equal(shouldPreallocateVideaSurface('Metro 2033 Redux'),false);
+ assert.equal(shouldPreallocateVideaSurface('Other game'),false);
+ assert.equal(needsXboxDialogCompatibility('Fortnite'),false);
 });
