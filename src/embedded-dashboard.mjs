@@ -7,7 +7,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       <div class="xb-app-top">
         <div class="xb-brand"><span class="xb-brand-orbit" aria-hidden="true">✕</span>
           <div><strong>xBridge <span>CLOUD</span></strong><small>Xbox Cloud Gaming • cliente independente</small></div></div>
-        <nav class="xb-console-nav" aria-label="Biblioteca"><button type="button" id="xb-nav-home" class="is-active">Início</button><button type="button" id="xb-nav-recent">Jogados recentemente</button><button type="button" id="xb-nav-library">Todos os jogos</button></nav>
+        <nav class="xb-console-nav" aria-label="Biblioteca"><button type="button" id="xb-nav-home" class="is-active">Início</button><button type="button" id="xb-nav-recent">Recentes</button><button type="button" id="xb-nav-library">Biblioteca</button></nav>
         <div class="xb-app-tag"><span class="xb-signal"></span><span id="xb-auth-badge">Xbox não conectada</span>
           <button type="button" id="xb-settings-toggle" class="xb-gear" aria-label="Configurações">⚙</button>
         </div>
@@ -45,10 +45,10 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       </section>
 
       <section id="xb-library" class="xb-library" hidden>
-        <div class="xb-library-hero">
+        <div class="xb-library-hero" id="xb-library-hero">
           <div class="xb-library-hero-art" id="xb-hero-art"></div>
           <div class="xb-library-hero-content">
-            <div class="xb-label">XBOX CLOUD GAMING • SELEÇÃO</div>
+            <div class="xb-label xb-featured-label"><span class="xb-featured-dot"></span> DESTAQUE · XBOX CLOUD GAMING</div>
             <h1 id="xb-hero-title">Sua próxima aventura</h1>
             <p id="xb-hero-description">Selecione um jogo da biblioteca para começar sua sessão na nuvem.</p>
             <div class="xb-hero-actions">
@@ -59,8 +59,12 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
             <p id="xb-launch-status" class="xb-launch-status" role="status" aria-live="polite"></p>
           </div>
         </div>
+        <section id="xb-quick-access" class="xb-quick-access" aria-label="Acesso rápido a jogos" hidden>
+          <div class="xb-row-heading"><div><span class="xb-label">ESCOLHIDOS PARA SUA SESSÃO</span><h2>Acesso rápido <span class="xb-row-arrow">↗</span></h2></div><span class="xb-row-hint">DIRECIONAL PARA NAVEGAR · A PARA SELECIONAR</span></div>
+          <div id="xb-quick-row" class="xb-quick-row" role="group" aria-label="Jogos recentes e disponíveis na nuvem"></div>
+        </section>
         <div class="xb-library-heading">
-          <div><div class="xb-label">JOGOS NA NUVEM</div><h2>Xbox Cloud Gaming</h2></div>
+          <div><div class="xb-label">EXPLORE A NUVEM</div><h2>Biblioteca de jogos</h2></div>
           <div class="xb-library-tools"><input id="xb-game-search" type="search" autocomplete="off" placeholder="Pesquisar nos jogos carregados…" aria-label="Pesquisar jogos"/><button id="embed-titles" class="xb-button xb-button-muted" type="button">Atualizar</button></div>
         </div>
         <div class="xb-library-filters">
@@ -158,6 +162,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       nextOffset=typeof result.next==='number'?result.next:null;
       show('xb-more',activeFilter==='cloud'&&nextOffset!==null);
       displayGames();
+      renderQuickAccess();
       if(!selectedId&&currentGames.length)selectGame(currentGames[0].titleId);
       if(!currentGames.length)$('xb-results-count').textContent='Nenhum jogo disponível foi retornado pela Microsoft nesta conta.';
       status(currentGames.length+' títulos reais carregados. Selecione um jogo.');
@@ -173,6 +178,47 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       return u.protocol==='https:' && (host==='xbox.com'||host.endsWith('.xbox.com')||host.endsWith('.xboxlive.com')||host.endsWith('.s-microsoft.com')||host.endsWith('.microsoft.com'))
         ?u.href:'';
     }catch(_){return ''}
+  }
+  // Reuse only titles returned by the actual Xbox Cloud catalog or account.
+  // Limit artwork to 8 extra covers so VIDAA's browser remains responsive.
+  function renderQuickAccess(){
+    const row=$('xb-quick-row');
+    row.replaceChildren();
+    const ids=new Set();
+    const quick=[...recentGames,...currentGames].filter(game=>{
+      if(!game?.titleId || ids.has(game.titleId))return false;
+      ids.add(game.titleId);return true;
+    }).slice(0,8);
+    show('xb-quick-access',quick.length>0);
+    for(const game of quick){
+      const button=document.createElement('button');
+      button.type='button';
+      button.className='xb-quick-card';
+      button.setAttribute('aria-label','Selecionar '+String(game.name||'jogo'));
+      const cover=safeCover(game.tile||game.hero);
+      const art=document.createElement('span');
+      art.className='xb-quick-art';
+      if(cover){
+        const image=document.createElement('img');
+        image.src=cover;image.alt='';image.loading='lazy';art.appendChild(image);
+      }else{
+        const fallback=document.createElement('b');
+        fallback.textContent=String(game.name||'?').charAt(0);art.appendChild(fallback);
+      }
+      const label=document.createElement('span');
+      label.className='xb-quick-title';
+      label.textContent=String(game.name||'Jogo');
+      const meta=document.createElement('small');
+      meta.textContent=recentGames.some(item=>item.titleId===game.titleId)
+        ?'Jogado recentemente':'Xbox Cloud Gaming';
+      button.appendChild(art);button.appendChild(label);button.appendChild(meta);
+      button.onclick=()=>{
+        selectGame(game.titleId);
+        $('xb-library-hero').scrollIntoView({block:'start',behavior:'auto'});
+        $('play').focus();
+      };
+      row.appendChild(button);
+    }
   }
   function displayGames(){
     const q=currentSearch.trim().toLocaleLowerCase('pt-BR');
@@ -252,6 +298,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const result=await api('recent');
       recentGames=Array.isArray(result.games)?result.games.filter(g=>g&&g.titleId):[];
       if(activeFilter==='recent')displayGames();
+      renderQuickAccess();
     }catch(error){
       recentGames=[];
       if(activeFilter==='recent')$('xb-results-count').textContent='Não foi possível consultar os jogos recentes desta conta. Verifique se este recurso está disponível.';
