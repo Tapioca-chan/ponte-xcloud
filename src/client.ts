@@ -1199,6 +1199,10 @@ if (embedded) {
    $('remote').textContent='Controle do celular recebendo comandos';
   } else if(event.data?.type==='xbridge-release'){
    frame=sanitize({});lastFrame=0;inputEdges.release();$('remote').textContent='Aguardando comandos do celular';
+  } else if(event.data?.type==='xbridge-start-auth'){
+   // Official Microsoft device-code flow is executed by the existing player.
+   // Only the non-secret verification code/URI goes to the paired mobile.
+   void dashboard.beginAuth();
   } else if(event.data?.type==='xbridge-game-menu') {
    notifyParent({type:'xbridge-game-session',active:false});
    // Return to catalog WITHOUT losing the Xbox account cookie.
