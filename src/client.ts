@@ -19,7 +19,11 @@ import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs'
 import {decoderSummary} from './decoder-health.mjs';
 import {compareFreezeEvidence} from './freeze-evidence.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
-const parentOrigin = 'https://xcloud-tv.onrender.com';
+// The TV embeds this player via its SAME-ORIGIN /player reverse proxy.
+// Hard-coding the previous xcloud-tv host silently discards 'xbridge-ready'
+// and video/control messages on the new xBridge-branded Render address.
+// Keep an exact same-origin target; never use '*' or a URL from user input.
+const parentOrigin = location.origin;
 const notifyParent = (message:any) => { if(embedded) window.parent.postMessage(message,parentOrigin); };
 import Player from '../vendor/packages/player/src/client/lib/player';
 import {buttons,axes,sanitize,gamepadFrame} from './protocol.mjs';
