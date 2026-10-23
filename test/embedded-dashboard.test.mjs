@@ -48,3 +48,37 @@ test('embedded Xbox dashboard initializes all real login and playback controls',
     else globalThis.window = previousWindow;
   }
 });
+
+
+test('console-selected game survives Xbox login screen without inventing entitlement', () => {
+ const elements = new Map();
+ class FakeElement {
+  constructor(id){this._id=id;this.onclick=null;this.disabled=false;this.hidden=false;this.textContent='';elements.set(id,this);}
+  get id(){return this._id}
+  set id(next){elements.delete(this._id);this._id=next;elements.set(next,this);}
+  set innerHTML(markup){for(const match of markup.matchAll(/\bid="([^"]+)"/g))new FakeElement(match[1]);}
+  addEventListener(){}
+ }
+ new FakeElement('tv');
+ for(const id of ['play','sound','fullscreen','stop'])new FakeElement(id);
+ const oldDocument=globalThis.document, oldWindow=globalThis.window, oldLocation=globalThis.location;
+ globalThis.document={getElementById:(id)=>elements.get(id)||null};
+ globalThis.window={addEventListener(){}};
+ globalThis.location={search:'?embed=xbridge&game=Fortnite'};
+ try{
+  const instance=mountEmbeddedDashboard({
+   api:async()=>{throw Error('No Xbox request during dashboard mount')},
+   QRCode:{toCanvas:async()=>{}},status:()=>{},notifyParent:()=>{},
+   handlers:{play(){},sound(){},fullscreen(){},stop(){}}
+  });
+  assert.ok(instance);
+  assert.equal(elements.get('xb-requested-game').hidden,false);
+  assert.match(elements.get('xb-requested-game').textContent,/Fortnite/);
+  assert.equal(elements.get('xb-requested-game').textContent,'JOGO SELECIONADO NO CONSOLE: Fortnite');
+  assert.equal(elements.get('play').disabled,false); // Original stream control retained.
+ }finally{
+  if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+  if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;
+  if(oldLocation===undefined)delete globalThis.location;else globalThis.location=oldLocation;
+ }
+});
