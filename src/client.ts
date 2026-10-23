@@ -632,6 +632,9 @@ function startVideoHealth(){
     // rather than using pause/play again on a physically frozen video.
     const preferSurface=shouldPreferNativeMetroSurface({
      title:launchedStreamingTitle,nativePlaneUnobservable:nativeBlind,
+     // A stalled presentation callback can occur after earlier frames were
+     // presented: it must not silently fall back to pause/play on VIDAA.
+     visualFrozen,presentationStalled:result.kind==='presentation-stall'&&freezeChecks>=3,
      firstVideoAt:nativePlaneFirstVideoAt,now,
      freezeCount:sample.freezeCount,hasVideo:Boolean(media?.srcObject),
      videoReadyState:sample.videoReadyState,connection:effectiveState,
