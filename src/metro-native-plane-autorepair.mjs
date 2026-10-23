@@ -184,8 +184,9 @@ export function chooseMetroHybridSurfaceRecovery({
  // If the opaque VIDAA plane conceals a real freeze and the counters remain
  // zero, periodically refresh only while the gamepad has been idle.
  // Rechecked on each watchdog tick, throughout the WHOLE game session.
- if(!recentMeaningfulInput &&
-    sinceFirst>=120000 && sinceRepair>=180000)
+ if(!recentMeaningfulInput && sinceFirst>=120000 &&
+    (lastAttemptAt>0 || lastManualRecoveryAt>0
+     ? sinceRepair>=180000 : sinceRepair>=120000))
   return {repair:true,reason:'timed-idle'};
  return no;
 }
