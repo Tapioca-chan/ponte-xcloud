@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,shouldRetryMetroNativeSurface} from '../src/metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,shouldRetryMetroNativeSurface,chooseMetroHybridSurfaceRecovery} from '../src/metro-native-plane-autorepair.mjs';
 const base={title:'Metro Exodus',nativePlaneUnobservable:true,
  firstVideoAt:1000,now:107000,freezeCount:1,hasVideo:true,
  videoReadyState:4,connection:'connected',overlayOpen:false,recoveryBusy:false,
@@ -123,4 +123,74 @@ test('second Metro VIDAA native-plane rebuild matches real late-freeze recovery 
   assert.equal(shouldRetryMetroNativeSurface({...evidence,...scenario}),false,
    JSON.stringify(scenario));
  }
+});
+
+test('hybrid Metro: recurrent WebRTC freeze signals trigger at any minute, including after hours',()=>{
+ const base={
+  title:'Metro Exodus',nativePlaneUnobservable:true,
+  firstVideoAt:1000,now:79000,lastAttemptAt:0,lastManualRecoveryAt:0,
+  recentFreezeEvents:2,decodedDelta:190,receivedDelta:2200,
+  hasVideo:true,videoReadyState:4,videoPaused:false,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,
+  recentMeaningfulInput:false,enabled:true
+ };
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery(base),
+  {repair:true,reason:'webrtc-suspected'});
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({
+  ...base,now:8*60*60*1000,lastAttemptAt:8*60*60*1000-90000,
+  recentFreezeEvents:3
+ }),{repair:true,reason:'webrtc-suspected'});
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:69000}).repair,false);
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentFreezeEvents:1}).repair,false);
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
+});
+
+test('hybrid Metro: idle timer works with freezeCount zero forever, with 2min initial and recurrent cadence',()=>{
+ const base={
+  title:'Metro Exodus',nativePlaneUnobservable:true,
+  firstVideoAt:1000,now:122000,lastAttemptAt:0,lastManualRecoveryAt:0,
+  recentFreezeEvents:0,decodedDelta:190,receivedDelta:2200,
+  hasVideo:true,videoReadyState:4,videoPaused:false,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,
+  recentMeaningfulInput:false,enabled:true
+ };
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery(base),
+  {repair:true,reason:'timed-idle'});
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:119000}).repair,false);
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:200000}).repair,false);
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:271000}),
+  {repair:true,reason:'timed-idle'});
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({
+  ...base,now:7*60*60*1000,lastAttemptAt:7*60*60*1000-181000
+ }),{repair:true,reason:'timed-idle'});
+ assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
+});
+
+test('hybrid Metro: no surface replacement during unsafe state or immediately after manual action',()=>{
+ const base={
+  title:'Metro Exodus',nativePlaneUnobservable:true,
+  firstVideoAt:1000,now:300000,lastAttemptAt:100000,lastManualRecoveryAt:0,
+  recentFreezeEvents:2,decodedDelta:190,receivedDelta:2200,
+  hasVideo:true,videoReadyState:4,videoPaused:false,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,
+  recentMeaningfulInput:false,enabled:true
+ };
+ for(const scenario of [
+  {title:'Marvel Rivals'},{title:'Metro 2033 Redux'},
+  {nativePlaneUnobservable:false},{lastManualRecoveryAt:280000},
+  {overlayOpen:true},{recoveryBusy:true},{enabled:false},
+  {hasVideo:false},{videoReadyState:1},{videoPaused:true},
+  {connection:'failed'},{decodedDelta:0},{receivedDelta:0},
+  {firstVideoAt:0},{now:0}
+ ]){
+  assert.equal(chooseMetroHybridSurfaceRecovery({...base,...scenario}).repair,false,
+   JSON.stringify(scenario));
+ }
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({
+  ...base,now:310000,lastManualRecoveryAt:195000
+ }),{repair:true,reason:'webrtc-suspected'});
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({
+  ...base,nativePlaneUnobservable:false,visualFrozen:true,
+  recentMeaningfulInput:true
+ }),{repair:true,reason:'visual-evidence'});
 });
