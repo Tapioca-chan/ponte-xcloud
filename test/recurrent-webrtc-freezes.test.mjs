@@ -54,3 +54,29 @@ test('faster Toshiba polls detect two separated post-45s freezes rather than wai
  w.acknowledgeRecovery();
  assert.equal(poll(w,55000,3).suspected,false,'no immediate retry on same freeze counter');
 });
+
+test('Metro fastStart: two independent rising polls recover intro without arbitrary startup delay',()=>{
+ const x=new RecurrentWebRtcFreezeWatch();
+ const fast={fastStart:true};
+ assert.equal(poll(x,5000,0,fast).suspected,false);
+ assert.equal(poll(x,9000,1,fast).suspected,false);
+ assert.equal(poll(x,13000,2,fast).suspected,true);
+ x.acknowledgeRecovery();
+ // Continuous freeze-count growth must NOT cause repeated hardware flashes.
+ assert.equal(poll(x,17000,4,fast).suspected,false);
+ assert.equal(poll(x,21000,5,fast).suspected,false);
+ assert.equal(poll(x,25000,5,fast).suspected,false);
+ assert.equal(poll(x,29000,5,fast).suspected,false);
+ assert.equal(poll(x,33000,6,fast).suspected,false);
+ assert.equal(poll(x,37000,7,fast).suspected,true);
+});
+test('Metro fastStart: no repair until recovery events are rearmed after two quiet samples',()=>{
+ const x=new RecurrentWebRtcFreezeWatch();
+ const fast={fastStart:true};
+ poll(x,5000,0,fast);
+ poll(x,9000,1,fast);
+ poll(x,13000,2,fast);
+ x.acknowledgeRecovery();
+ for(let i=3;i<15;i++)assert.equal(poll(x,i*4000+5000,i,fast).suspected,false,
+  'ongoing counter growth is not a valid new independent freeze episode');
+});
