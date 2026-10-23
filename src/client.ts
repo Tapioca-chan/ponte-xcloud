@@ -201,8 +201,24 @@ async function autoRebuildMetroSurface(repeat=false):Promise<boolean>{
    metro:true,attempts:metroRecoveryAttempts,freezeCount:currentVideoFreezeCount});
  notifyParent({type:'xbridge-native-surface-rebuild',step:'start',automatic:true});
  try{
+  // Mirror the bounded evidence sample used by the user-confirmed manual
+  // rescue, rather than rebuilding at the middle of a scene transition.
+  const before=repeat ? await captureFreezeSampleBounded(450) : null;
+  if(active!==player)return false;
+  if(repeat)reportFreezeSample('surface-before','before-recovery',before);
   const ok=await active.rebuildNativeVideoSurface?.()===true;
   if(active!==player)return false;
+  if(repeat){
+   // Decoder/network counters cannot prove physical VIDAA screen movement.
+   // Record only bounded coarse stats, never media frames or account data.
+   setTimeout(async()=>{
+    if(player!==active)return;
+    const after=await captureFreezeSampleBounded(1500);
+    if(player!==active)return;
+    reportFreezeSample('surface-after',ok?'recovery-ok':'recovery-failed',
+     after,compareFreezeEvidence(before,after));
+   },4500);
+  }
   if(ok){
    lastStrongVideoRebindAt=Date.now();
    autoNativeSurfaceRecovered=true;
