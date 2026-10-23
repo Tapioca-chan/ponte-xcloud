@@ -105,7 +105,8 @@ export function shouldProtectRecoveredMetroSurface({
 
 // Observed on VIDAA: native surface repair #1 accepted at 09:31:23,
 // a later user-triggered "Nova superfície" accepted at 09:32:43 and
-// restored the image. A second *native surface* can therefore be a bounded
+// restored the image. An automatic second rebuild at age 130s did NOT
+// restore the TV; require a later game phase closer to the effective manual. A second *native surface* can therefore be a bounded
 // fallback, distinct from the harmful automatic srcObject detach/rebind.
 // The compositor cannot be observed directly; require two NEW WebRTC freezes
 // after repair #1, ongoing decoder/network progress and an idle controller.
@@ -126,9 +127,9 @@ export function shouldRetryMetroNativeSurface({
   priorSurfaceSucceeded===true && autoNativeSurfaceAttempts===1 &&
   Number.isFinite(firstVideoAt)&&firstVideoAt>0 &&
   Number.isFinite(lastSurfaceAt)&&lastSurfaceAt>firstVideoAt &&
-  Number.isFinite(now) && sinceFirstVideo>=125000 &&
+  Number.isFinite(now) && sinceFirstVideo>=150000 &&
   sinceFirstVideo<=360000 &&
-  sinceFirstRepair>=70000 && sinceFirstRepair<=240000 &&
+  sinceFirstRepair>=90000 && sinceFirstRepair<=240000 &&
   Number.isFinite(baselineFreezeCount) && baselineFreezeCount>=0 &&
   Number.isFinite(freezeCount) && freezeCount>=baselineFreezeCount+2 &&
   Number.isFinite(decodedDelta)&&decodedDelta>=30 &&
