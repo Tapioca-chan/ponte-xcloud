@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair} from '../src/metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface} from '../src/metro-native-plane-autorepair.mjs';
 const base={title:'Metro Exodus',nativePlaneUnobservable:true,
  firstVideoAt:1000,now:107000,freezeCount:1,hasVideo:true,
  videoReadyState:4,connection:'connected',overlayOpen:false,recoveryBusy:false,
@@ -35,4 +35,20 @@ test('does not repeat startup rebind more than once',()=>{
  assert.equal(shouldStartMetroOpaqueRepair({...base,attempts:1}),false);
  assert.equal(shouldEscalateMetroOpaqueRepair({...base,attempts:2,lastSoftRecoveryAt:112000,now:139000}),false);
  assert.equal(shouldEscalateMetroOpaqueRepair({...base,attempts:3,lastSoftRecoveryAt:112000,now:139000}),false);
+});
+
+test('evidence-based Metro freeze watchdog prioritizes automatic native plane (no button)',()=>{
+ const base={title:'Metro Exodus',nativePlaneUnobservable:true,firstVideoAt:1000,
+  now:61000,freezeCount:3,hasVideo:true,videoReadyState:4,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,
+  alreadyTried:false};
+ assert.equal(shouldPreferNativeMetroSurface(base),true);
+ assert.equal(shouldPreferNativeMetroSurface({...base,now:35000}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,alreadyTried:true}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,overlayOpen:true}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,recoveryBusy:true}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,title:'Marvel Rivals'}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,nativePlaneUnobservable:false}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,freezeCount:0}),false);
+ assert.equal(shouldPreferNativeMetroSurface({...base,now:300000}),false);
 });
