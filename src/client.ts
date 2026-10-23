@@ -515,7 +515,7 @@ function startVideoHealth(){
     now,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt,
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
     connection:effectiveState
-   })&&!videoRecoveryInFlight && !gameOverlayOpen){
+   })&&!videoRecoveryInFlight && !gameOverlayOpen && !activeFreezeMarker){
     queuedMetroIntroRecovery=false;
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
@@ -535,7 +535,7 @@ function startVideoHealth(){
     hasVideo:Boolean(media?.srcObject),
     connected:effectiveState==='connected'||effectiveState==='completed',
     overlayOpen:gameOverlayOpen,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt
-   })&&!videoRecoveryInFlight){
+   })&&!videoRecoveryInFlight && !activeFreezeMarker){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     status('VIDAA: espera de vídeo prolongada após uma transição. Recuperando a imagem…');
@@ -557,7 +557,7 @@ function startVideoHealth(){
     freezeCount:sample.freezeCount,
     hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
     connection:effectiveState,overlayOpen:gameOverlayOpen,
-    recoveryBusy:videoRecoveryInFlight,enabled:opaqueRepairEnabled,
+    recoveryBusy:videoRecoveryInFlight||Boolean(activeFreezeMarker),enabled:opaqueRepairEnabled,
     lastManualRecoveryAt,attempts:metroRecoveryAttempts,
     earlyFreezeRises,lastSoftRecoveryAt
    };
@@ -621,7 +621,7 @@ function startVideoHealth(){
     unreadableSamples:nativeUnreadableSamples,
     decodedAdvancing:sample.decoded>previousDecoded,
     hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
-    connection:effectiveState,overlayOpen:gameOverlayOpen,inFlight:videoRecoveryInFlight
+    connection:effectiveState,overlayOpen:gameOverlayOpen,inFlight:videoRecoveryInFlight||Boolean(activeFreezeMarker)
    })){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
@@ -987,7 +987,7 @@ if (embedded) {
     // after closing, without forcing another 6.5 s stats cycle.
     setTimeout(()=>{
      const age=nativePlaneFirstVideoAt?Date.now()-nativePlaneFirstVideoAt:Infinity;
-     if(gameOverlayOpen || !queuedMetroIntroRecovery || !started ||
+     if(gameOverlayOpen || activeFreezeMarker || !queuedMetroIntroRecovery || !started ||
         metroRecoveryAttempts!==0 || videoRecoveryInFlight ||
         age<90000 || age>300000)return;
      const media=player?.getVideoElement?.() as HTMLVideoElement|undefined;
