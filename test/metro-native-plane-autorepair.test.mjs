@@ -99,7 +99,7 @@ test('Toshiba post-surface black-screen regression: do not arm a second automati
 test('second Metro VIDAA native-plane rebuild matches real late-freeze recovery without automatic srcObject detachment',()=>{
  const evidence={
   title:'Metro Exodus',nativePlaneUnobservable:true,
-  firstVideoAt:1000,now:157000,lastSurfaceAt:79000,
+  firstVideoAt:1000,now:183000,lastSurfaceAt:79000,
   baselineFreezeCount:4,freezeCount:6,
   autoNativeSurfaceAttempts:1,priorSurfaceSucceeded:true,
   decodedDelta:585,receivedDelta:2000,hasVideo:true,
@@ -112,7 +112,7 @@ test('second Metro VIDAA native-plane rebuild matches real late-freeze recovery 
   {title:'Marvel Rivals'},{title:'Metro 2033 Redux'},
   {nativePlaneUnobservable:false},{priorSurfaceSucceeded:false},
   {autoNativeSurfaceAttempts:0},{autoNativeSurfaceAttempts:2},
-  {now:147000},{now:380000},{lastSurfaceAt:0},
+  {now:147000},{now:156000},{now:380000},{lastSurfaceAt:0},{lastSurfaceAt:100000},
   {freezeCount:5},{baselineFreezeCount:null},{freezeCount:null},
   {decodedDelta:0},{receivedDelta:0},{hasVideo:false},
   {videoReadyState:1},{videoPaused:true},{connection:'disconnected'},
