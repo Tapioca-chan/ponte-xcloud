@@ -8,6 +8,7 @@ import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
 import {reclaimIdleRooms} from './room-capacity.mjs';
+import {isDirectConsoleNavigation,directConsoleDestination} from './console-entrypoint.mjs';
 import {saveRemember,loadRemember,revokeRemember,persistentConfigured} from './remember-store.mjs';
 import {normalizeMicrosoftUserToken} from './msal-token-shape.mjs';
 const rooms=new Map<string,any>();
@@ -60,6 +61,23 @@ const server=http.createServer(async(req,res)=>{
  let actionName='initialization';
  try {
   if(u.pathname==='/health'){reply(res,200,{ok:true,experimental:true,clientBuild:process.env.XBRIDGE_CLIENT_FIX_VERSION||'base'});return;}
+  // xbridge-player.onrender.com is the project's historic public link.
+  // Direct navigation should open the CURRENT XBridge console UI. But
+  // xcloud-tv.onrender.com/player/index.html fetches this backend '/' as
+  // a same-origin-proxied video player and MUST receive original HTML.
+  // Never redirect API/auth, health, static assets or WebSocket routes.
+  if(isDirectConsoleNavigation({
+    pathname:u.pathname,method:req.method||'GET',
+    proxyMarker:String(req.headers['x-xbridge-player-proxy']||'')
+  })){
+   const target=directConsoleDestination(u.search);
+   res.writeHead(302,{
+    'Location':target,'Cache-Control':'no-store, max-age=0',
+    'X-xBridge-Entry':'console',
+   });
+   res.end();
+   return;
+  }
   if(u.pathname.startsWith('/api/')){
    if(req.method!=='POST'){reply(res,405,{error:'POST obrigatório'});return;}
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>131072){reply(res,413,{error:'Pedido grande demais'});return;}}
