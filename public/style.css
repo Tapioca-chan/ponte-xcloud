@@ -410,3 +410,162 @@ body.xbridge-embedded.stream-playing #playerContainer {
  .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
  .xbridge-embedded .xb-app-tag{display:none}
 }
+
+
+/* XBRIDGE OS CONTINUITY — authentic Xbox login and real cloud library.
+   This applies only to the EMBEDDED player document, never to live video.
+   Keep lightweight gradients and the original real Xbox game/stream logic. */
+body.xbridge-embedded{background:#070c17!important;color:#f3f7ff!important;font-family:Arial,Helvetica,sans-serif}
+.xbridge-embedded main{background:#070c17!important}
+.xbridge-embedded .xb-console{background:#070c17!important;color:#f2f7ff!important;min-height:100vh}
+.xbridge-embedded .xb-app-top{height:47px;min-height:47px!important;
+ padding:5px clamp(22px,4.5vw,76px)!important;
+ background:#090f1b!important;border-bottom:1px solid rgba(195,214,241,.15)!important;
+ box-shadow:none!important}
+.xbridge-embedded .xb-brand{display:none}
+.xbridge-embedded .xb-console-nav{justify-content:flex-start;margin-left:0;gap:10px}
+.xbridge-embedded .xb-console .xb-console-nav button{
+ font-size:11px!important;padding:9px 13px!important;letter-spacing:.035em;
+ border-radius:6px!important;background:transparent!important;color:#a8b7c9!important;
+ border:1px solid transparent!important;box-shadow:none!important}
+.xbridge-embedded .xb-console .xb-console-nav button.is-active{
+ background:#dceaf017!important;color:#f5fbff!important;border-color:#dceaf01f!important}
+.xbridge-embedded .xb-console .xb-console-nav button:focus-visible{
+ outline:2px solid #ccffab!important;outline-offset:2px}
+.xbridge-embedded .xb-app-tag{
+ border:none!important;background:transparent!important;color:#cbd6e3!important;
+ font-size:10px!important;letter-spacing:.07em;box-shadow:none!important;padding:0!important}
+.xbridge-embedded .xb-signal{background:#b9f995!important}
+.xbridge-embedded .xb-console .xb-gear{
+ width:31px!important;height:31px!important;border:1px solid #ffffff30!important;
+ border-radius:50%!important;background:#ffffff13!important;color:#eef5ff!important}
+
+/* Console-styled Microsoft device-flow scene */
+.xbridge-embedded .xb-gateway{
+ min-height:calc(100vh - 47px)!important;
+ display:grid;grid-template-columns:minmax(0,1.12fr) minmax(360px,.82fr);gap:36px;
+ padding:clamp(24px,6vw,100px)!important;align-items:center;
+ background:
+ radial-gradient(ellipse at 85% 22%,rgba(76,115,190,.3),transparent 40%),
+ radial-gradient(ellipse at 46% 72%,rgba(54,106,96,.22),transparent 52%),
+ linear-gradient(125deg,#050a15,#121f34 78%,#101628)!important}
+.xbridge-embedded .xb-gateway-intro{padding:0!important}
+.xbridge-embedded .xb-gateway .xb-overline{
+ font-size:11px!important;color:#c9fca3!important;letter-spacing:.23em!important}
+.xbridge-embedded .xb-gateway h1{
+ font-size:clamp(46px,6.4vw,94px)!important;line-height:.95!important;
+ color:#f8fbff!important;letter-spacing:-.065em!important;font-weight:900!important;
+ max-width:820px;margin:20px 0!important;text-shadow:0 8px 28px #0008!important}
+.xbridge-embedded .xb-gateway h1 em{color:#c7ff9c!important}
+.xbridge-embedded .xb-gateway-intro p{font-size:15px;color:#c0ccda!important;line-height:1.65;max-width:530px}
+.xbridge-embedded .xb-gateway-stats{margin-top:36px;font-size:11px;color:#bdcbd8}
+.xbridge-embedded .xb-login-panel{
+ border:1px solid #c3dbff2d!important;border-radius:17px!important;
+ background:linear-gradient(155deg,#1c2b41,#0c1729)!important;
+ box-shadow:0 25px 70px #0009!important;padding:clamp(23px,2.7vw,38px)!important}
+.xbridge-embedded .xb-login-panel h2{font-size:27px;font-weight:870;color:#fff;margin:12px 0}
+.xbridge-embedded .xb-login-panel>p{font-size:13px;color:#bbcadd!important}
+.xbridge-embedded .xb-requested-game{
+ display:block;background:#abddfa13;border:1px solid #b6e3ff38;border-radius:10px;
+ padding:13px;color:#c9fca3!important;font-size:11px!important;font-weight:850;
+ letter-spacing:.06em;line-height:1.5;margin:15px 0!important}
+.xbridge-embedded .xb-requested-game[hidden]{display:none!important}
+.xbridge-embedded .xb-authorization{border-color:#d4e3f026!important}
+.xbridge-embedded .xb-authorization-text .xb-label,.xbridge-embedded .xb-label{
+ color:#bcdaa9!important;font-weight:800}
+.xbridge-embedded .xb-login-code{color:#d0ff9e!important}
+.xbridge-embedded .xb-ms-link{color:#a9d3ff!important}
+.xbridge-embedded .xb-console .xb-button-primary{color:#0b1321!important;background:#f6f9ff!important;
+ border-radius:8px!important;border-color:#fff!important;box-shadow:0 10px 30px #0007!important}
+.xbridge-embedded .xb-console .xb-button-primary:hover{background:#d2ffb2!important}
+.xbridge-embedded .xb-console .xb-button-muted{background:#ffffff13!important;color:#f4f8ff!important;
+ border:1px solid #ffffff3a!important;border-radius:8px!important}
+
+/* Actual Xbox library is now a game-led, fullscreen console scene rather than
+   the old nested green banner/card. No fabricated games or access flags. */
+.xbridge-embedded .xb-library{background:#070c17!important;min-height:100vh}
+.xbridge-embedded .xb-library-hero{
+ position:relative;margin:0!important;width:100%!important;min-height:370px;
+ height:clamp(390px,59vh,740px)!important;border:0!important;border-radius:0!important;
+ background:radial-gradient(ellipse at 79% 32%,#415f91,#15213a 48%,#090f1c 95%)!important;
+ box-shadow:none!important}
+.xbridge-embedded .xb-library-hero-art{
+ right:0;top:0;bottom:0;width:77%!important;opacity:1!important}
+.xbridge-embedded .xb-library-hero-art img{width:100%;height:100%;object-fit:cover;
+ object-position:62% 42%;filter:none!important}
+.xbridge-embedded .xb-library-hero:before{
+ content:''!important;inset:0!important;right:0;position:absolute;z-index:1;width:100%!important;
+ background:linear-gradient(90deg,#070c17ff 0%,#090f1cef 18%,#090f1ca6 38%,#090e193a 73%),
+ linear-gradient(0deg,#070c17eb 0%,transparent 35%,#080d173d 100%)!important}
+.xbridge-embedded .xb-library-hero:after{content:none!important}
+.xbridge-embedded .xb-library-hero-content{
+ display:flex;flex-direction:column;justify-content:center;
+ height:100%;max-width:900px!important;width:70%!important;position:relative;z-index:2;
+ padding:clamp(30px,5vw,85px)!important}
+.xbridge-embedded .xb-featured-label{
+ display:inline-flex;align-self:flex-start;gap:12px;align-items:center;
+ color:#d9feb9!important;background:none!important;border:none!important;border-radius:0!important;
+ padding:0!important;letter-spacing:.22em;font-size:10px!important}
+.xbridge-embedded .xb-featured-dot{background:#bdf59c!important}
+.xbridge-embedded .xb-library-hero h1{
+ font-size:clamp(49px,7.2vw,106px)!important;letter-spacing:-.078em!important;
+ font-weight:920!important;line-height:.97!important;margin:18px 0!important;
+ max-height:260px!important;overflow:hidden;text-shadow:0 7px 24px #000a!important}
+.xbridge-embedded .xb-library-hero p{
+ font-size:14px!important;color:#d0dce9!important;max-width:610px!important;
+ line-height:1.6!important;min-height:0!important}
+.xbridge-embedded .xb-hero-actions{margin-top:23px!important}
+.xbridge-embedded .xb-console .xb-hero-actions .xb-button{padding:17px 27px!important;
+ font-size:14px!important;letter-spacing:.015em}
+.xbridge-embedded .xb-hero-actions span{color:#bdcddd!important;font-size:11px}
+.xbridge-embedded .xb-game-access{color:#b3c6d8!important;font-size:11px!important}
+.xbridge-embedded .xb-quick-access{padding:25px clamp(25px,5vw,84px) 14px!important;
+ background:#070c17}
+.xbridge-embedded .xb-row-heading h2{color:#f5f9ff!important;letter-spacing:-.05em}
+.xbridge-embedded .xb-console .xb-quick-card{
+ background:#121c2b!important;border:1px solid #ffffff28!important;color:#f5faff!important;
+ border-radius:11px!important;box-shadow:0 7px 25px #0009!important}
+.xbridge-embedded .xb-console .xb-quick-card:focus-visible,.xbridge-embedded .xb-console .xb-quick-card:hover{
+ border-color:#d3fdb6!important;outline-color:#d3fdb6!important;background:#25354b!important}
+.xbridge-embedded .xb-quick-card small{color:#9aacbf!important}
+.xbridge-embedded .xb-library-heading{padding:30px clamp(25px,5vw,84px) 10px!important}
+.xbridge-embedded .xb-library-heading h2{font-size:clamp(25px,3vw,41px)!important;
+ color:#f7fbff!important;letter-spacing:-.06em!important}
+.xbridge-embedded .xb-library-tools input{background:#172336!important;border:1px solid #ffffff2d!important}
+.xbridge-embedded .xb-library-filters{padding:10px clamp(25px,5vw,84px)!important}
+.xbridge-embedded .xb-console .xb-filter{background:#142034!important;border:1px solid #ffffff24!important;
+ color:#cedaea!important;border-radius:8px!important}
+.xbridge-embedded .xb-console .xb-filter.is-active{background:#f1f8ff!important;
+ color:#0e1926!important;border-color:white!important}
+.xbridge-embedded .xb-library-notice{color:#91a3b5!important;padding:4px clamp(25px,5vw,84px) 17px!important}
+.xbridge-embedded .xb-results-count{color:#9aafc3!important;padding:0 clamp(25px,5vw,84px) 14px!important}
+.xbridge-embedded .xb-games-grid{padding:0 clamp(25px,5vw,84px) 26px!important;
+ grid-template-columns:repeat(6,minmax(0,1fr));gap:15px!important}
+.xbridge-embedded .xb-console .xb-game-card{background:#141d2c!important;border:1px solid #ffffff21!important;
+ border-radius:10px!important;color:white!important;box-shadow:0 6px 21px #0006!important}
+.xbridge-embedded .xb-console .xb-game-card:hover,.xbridge-embedded .xb-console .xb-game-card.is-selected,
+.xbridge-embedded .xb-console .xb-game-card:focus-visible{outline:2px solid #c7ffa0!important;
+ outline-offset:2px;border-color:#c7ffa0!important}
+.xbridge-embedded .xb-card-name{color:#f4f9ff!important}
+.xbridge-embedded .xb-card-sub{color:#9cafc2!important}
+.xbridge-embedded .xb-settings-panel{background:#111c2e!important;border-color:#ffffff34!important}
+@media(max-width:1100px){
+ .xbridge-embedded .xb-gateway{grid-template-columns:1fr;gap:21px}
+ .xbridge-embedded .xb-gateway h1{font-size:clamp(42px,6vw,65px)!important}
+ .xbridge-embedded .xb-login-panel{max-width:720px}
+ .xbridge-embedded .xb-library-hero{height:clamp(350px,55vh,580px)!important}
+ .xbridge-embedded .xb-library-hero-content{width:85%!important}
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+}
+@media(max-width:700px){
+ .xbridge-embedded .xb-app-top{padding:7px 12px!important}
+ .xbridge-embedded .xb-console .xb-console-nav button{padding:7px 9px!important}
+ .xbridge-embedded .xb-gateway{padding:22px!important}
+ .xbridge-embedded .xb-gateway h1{font-size:39px!important}
+ .xbridge-embedded .xb-library-hero{height:410px!important}
+ .xbridge-embedded .xb-library-hero-content{width:100%!important;padding:24px!important}
+ .xbridge-embedded .xb-library-hero h1{font-size:43px!important}
+ .xbridge-embedded .xb-quick-access{padding:14px 16px!important}
+ .xbridge-embedded .xb-games-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;padding:0 16px 18px!important}
+ .xbridge-embedded .xb-library-heading,.xbridge-embedded .xb-library-filters,.xbridge-embedded .xb-results-count,.xbridge-embedded .xb-library-notice{padding-left:16px!important;padding-right:16px!important}
+}
