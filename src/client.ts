@@ -132,6 +132,14 @@ async function captureFreezeSample():Promise<any|null>{
   };
  }catch(_){return null;}
 }
+// A VIDAA getStats() call can hang during a decoder stall. Never let the
+// diagnostic delay the user's emergency Recover Image button indefinitely.
+async function captureFreezeSampleBounded(maxWaitMs:number):Promise<any|null>{
+ return Promise.race([
+  captureFreezeSample(),
+  new Promise<null>(resolve=>setTimeout(()=>resolve(null),maxWaitMs))
+ ]);
+}
 function reportFreezeSample(phase:string,source:string,sample:any,comparison:any=null){
  traceVideo(phase,{
   source,capture:sample?'ok':'unavailable',
@@ -149,7 +157,7 @@ function reportFreezeSample(phase:string,source:string,sample:any,comparison:any
 }
 async function markVisibleFreeze(){
  const serial=++freezeMarkerSerial;
- const snapshot=await captureFreezeSample();
+ const snapshot=await captureFreezeSampleBounded(1500);
  if(serial!==freezeMarkerSerial)return;
  if(!snapshot){
   reportFreezeSample('freeze-marker','user',null);
@@ -162,7 +170,7 @@ async function markVisibleFreeze(){
  status('Imagem travada marcada. Observando o WebRTC por 8 s sem interromper o vídeo.');
  setTimeout(async()=>{
   if(serial!==freezeMarkerSerial || activeFreezeMarker?.serial!==serial)return;
-  const after=await captureFreezeSample();
+  const after=await captureFreezeSampleBounded(1500);
   if(serial!==freezeMarkerSerial || activeFreezeMarker?.serial!==serial)return;
   activeFreezeMarker=null;
   const compare=compareFreezeEvidence(snapshot,after);
@@ -176,7 +184,7 @@ async function recoverManuallyWithEvidence(){
  ++freezeMarkerSerial;
  const marker=activeFreezeMarker;
  activeFreezeMarker=null;
- const before=await captureFreezeSample();
+ const before=await captureFreezeSampleBounded(450);
  if(marker){
   reportFreezeSample('freeze-followup','before-recovery',before,
    compareFreezeEvidence(marker.baseline,before));
@@ -188,7 +196,7 @@ async function recoverManuallyWithEvidence(){
  lastManualRecoveryAt=Date.now();
  const recovered=await recoverXboxVideoLocally('manual');
  setTimeout(async()=>{
-  const after=await captureFreezeSample();
+  const after=await captureFreezeSampleBounded(1500);
   reportFreezeSample('freeze-after-recovery',recovered?'recovery-ok':'recovery-failed',
    after,compareFreezeEvidence(before,after));
  },4000);
