@@ -1169,6 +1169,27 @@ if (embedded) {
     else if(!$('xb-library').hidden){$('xb-nav-home')?.focus();$('xb-nav-home')?.click();}
     continue;
    }
+   if(action==='settings'){
+    $('xb-settings-toggle')?.click();
+    ($('xb-settings-panel').hidden?$('xb-settings-toggle'):$('xb-settings-close'))?.focus();
+    continue;
+   }
+   if(action==='fullscreen'){
+    notifyParent({type:'xbridge-toggle-fullscreen'});
+    continue;
+   }
+   if(!hub||hub.hidden){
+    if(action==='library'){$('xb-nav-library')?.click();$('xb-filter-cloud')?.focus();continue;}
+    if(action==='recent'){$('xb-nav-recent')?.click();$('xb-filter-recent')?.focus();continue;}
+    if(action==='favorites'){$('xb-nav-library')?.click();$('xb-filter-favorites')?.click();$('xb-filter-favorites')?.focus();continue;}
+    if(action==='previousTab'||action==='nextTab'){
+     const tabs=['xb-nav-home','xb-nav-recent','xb-nav-library'];
+     const current=tabs.findIndex(id=>$(id)?.classList.contains('is-active'));
+     const next=(Math.max(0,current)+(action==='previousTab'?tabs.length-1:1))%tabs.length;
+     $(tabs[next])?.click();$(tabs[next])?.focus();
+     continue;
+    }
+   }
    const candidates=visible('button, a[href], input[type="search"], input:not([type]), [role="button"]')
       .filter(el=>scope.contains(el)||((!hub||hub.hidden)&&(!panel||panel.hidden)&&el.closest('.xb-app-top')));
    const current=document.activeElement as HTMLElement;
