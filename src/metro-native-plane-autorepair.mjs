@@ -172,15 +172,16 @@ export function chooseMetroHybridSurfaceRecovery({
  const sinceFirst=now-firstVideoAt;
  // A manual action needs its own quiet period so automation cannot undo it.
  if(lastManualRecoveryAt>0&&now-lastManualRecoveryAt<60000)return no;
- // Require decoded video startup grace (45 s) and 50 s between repairs.
- // Faster repeated-freeze response is still rate-limited. This is a cooldown,
- // NOT a maximum duration or attempt limit. No automatic WebRTC rebind.
- if(sinceFirst<45000 || sinceRepair<50000)return no;
- // The recurring detector is available at ANY minute/hour of the session;
- // require multiple discrete poll events and avoid controller-active frames.
- if((visualFrozen||presentationStalled) && sinceRepair>=50000)
+ // No arbitrary 45s startup delay for independently detected freezes.
+ // The recurring WebRTC watcher requires TWO distinct rising polls, and
+ // after a repair it re-arms only after two clean polls. A 50-second
+ // cooldown remains ONLY for repeated surface swaps, avoiding black flashes.
+ const repairedBefore=Number.isFinite(lastAttemptAt)&&lastAttemptAt>0;
+ const repairCooldownDone=!repairedBefore||now-lastAttemptAt>=50000;
+ // Do not interfere with live gamepad actions on weak WebRTC evidence.
+ if(repairCooldownDone && (visualFrozen||presentationStalled))
   return {repair:true,reason:'visual-evidence'};
- if(recentFreezeEvents>=2 && !recentMeaningfulInput)
+ if(repairCooldownDone && recentFreezeEvents>=2 && !recentMeaningfulInput)
   return {repair:true,reason:'webrtc-suspected'};
  // If the opaque VIDAA plane conceals a real freeze and the counters remain
  // zero, periodically refresh only while the gamepad has been idle.
