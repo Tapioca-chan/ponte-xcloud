@@ -179,6 +179,45 @@ async function markVisibleFreeze(){
   status('Diagnóstico da imagem congelada registrado. Pode usar Recuperar imagem se necessário.');
  },8000);
 }
+// Metro-only automatic native plane recovery, no mobile/TV button needed.
+// The existing startup policy allows this once, with frozen-frame counters,
+// a completed ad grace and protection against overlays and real gameplay.
+async function autoRebuildMetroSurface():Promise<boolean>{
+ if(videoRecoveryInFlight || activeFreezeMarker || gameOverlayOpen ||
+    !needsXboxDialogCompatibility(launchedStreamingTitle))return false;
+ const active=player;
+ const video=active?.getVideoElement?.() as HTMLVideoElement|undefined;
+ if(!active || !video?.srcObject || !video.isConnected)return false;
+ videoRecoveryInFlight=true;
+ traceVideo('attempt',{stage:'surface',kind:'native-plane-rebuild',manual:false,
+   metro:true,attempts:metroRecoveryAttempts,freezeCount:currentVideoFreezeCount});
+ notifyParent({type:'xbridge-native-surface-rebuild',step:'start',automatic:true});
+ try{
+  const ok=await active.rebuildNativeVideoSurface?.()===true;
+  if(active!==player)return false;
+  if(ok){
+   lastStrongVideoRebindAt=Date.now();
+   healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
+   webRtcFreezeWatch.acknowledgeRecovery();
+   // Permit at most one separate, previously available Metro-only fallback
+   // after the grace window if hardware presentation still has problems.
+   lastSoftRecoveryAt=Date.now();
+   lastSoftFreezeCount=currentVideoFreezeCount;
+   status('Metro/VIDAA: nova superfície nativa criada automaticamente, sem reiniciar o jogo.');
+  }else{
+   status('Metro/VIDAA: nova superfície indisponível; preservando a partida.');
+  }
+  traceVideo('result',{stage:'surface',kind:'native-plane-rebuild',
+    result:ok?'play-accepted':'exception',manual:false,metro:true});
+  notifyParent({type:'xbridge-native-surface-rebuild',
+    step:ok?'created':'failed',automatic:true});
+  return ok;
+ }catch(_){
+  traceVideo('result',{stage:'surface',kind:'native-plane-rebuild',result:'exception',metro:true});
+  notifyParent({type:'xbridge-native-surface-rebuild',step:'failed',automatic:true});
+  return false;
+ }finally{videoRecoveryInFlight=false;}
+}
 async function rebuildNativeVideoSurfaceWithEvidence(){
  if(videoRecoveryInFlight){
   notifyParent({type:'xbridge-native-surface-rebuild',step:'busy'});
@@ -657,9 +696,14 @@ function startVideoHealth(){
     notifyParent({type:'xbridge-metro-compat-action',
       stage,attempt:metroRecoveryAttempts});
     status(doStrong
-      ?'Metro/VIDAA: último recurso, recriando o vídeo sem reiniciar o jogo…'
-      :'Metro/VIDAA: iniciando recuperação leve do vídeo…');
-    const recovered=await recoverXboxVideoLocally('automatic',kind);
+      ?'Metro/VIDAA: segunda etapa de recuperação automática, sem reiniciar o jogo…'
+      :'Metro/VIDAA: recriando automaticamente a superfície nativa da TV…');
+    // Pause/play was reported as successful during confirmed Metro freezes,
+    // but the Toshiba still displayed the same stuck frame. First create
+    // an entirely NEW video DOM node with the existing Xbox MediaStream.
+    // If hardware playback refuses it, fall back to the old soft method.
+    const surfaceOk=doSoft ? await autoRebuildMetroSurface() : false;
+    const recovered=surfaceOk || await recoverXboxVideoLocally('automatic',kind);
     if(!recovered){
      notifyParent({type:'xbridge-metro-compat-action',stage:'failed',
        attempt:metroRecoveryAttempts});
