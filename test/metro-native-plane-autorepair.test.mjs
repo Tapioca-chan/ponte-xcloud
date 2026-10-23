@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface} from '../src/metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,shouldRetryMetroNativeSurface} from '../src/metro-native-plane-autorepair.mjs';
 const base={title:'Metro Exodus',nativePlaneUnobservable:true,
  firstVideoAt:1000,now:107000,freezeCount:1,hasVideo:true,
  videoReadyState:4,connection:'connected',overlayOpen:false,recoveryBusy:false,
@@ -94,4 +94,33 @@ test('Toshiba post-surface black-screen regression: do not arm a second automati
  assert.equal(shouldProtectRecoveredMetroSurface({title:'Marvel Rivals',nativeSurfaceRecovered:true}),false);
  assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro 2033 Redux',nativeSurfaceRecovered:true}),false);
  assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro Exodus'}),false);
+});
+
+test('second Metro VIDAA native-plane rebuild matches real late-freeze recovery without automatic srcObject detachment',()=>{
+ const evidence={
+  title:'Metro Exodus',nativePlaneUnobservable:true,
+  firstVideoAt:1000,now:157000,lastSurfaceAt:79000,
+  baselineFreezeCount:4,freezeCount:6,
+  autoNativeSurfaceAttempts:1,priorSurfaceSucceeded:true,
+  decodedDelta:585,receivedDelta:2000,hasVideo:true,
+  videoReadyState:4,videoPaused:false,connection:'connected',
+  overlayOpen:false,recoveryBusy:false,lastManualRecoveryAt:0,
+  enabled:true,recentMeaningfulInput:false
+ };
+ assert.equal(shouldRetryMetroNativeSurface(evidence),true);
+ const rejected=[
+  {title:'Marvel Rivals'},{title:'Metro 2033 Redux'},
+  {nativePlaneUnobservable:false},{priorSurfaceSucceeded:false},
+  {autoNativeSurfaceAttempts:0},{autoNativeSurfaceAttempts:2},
+  {now:147000},{now:380000},{lastSurfaceAt:0},
+  {freezeCount:5},{baselineFreezeCount:null},{freezeCount:null},
+  {decodedDelta:0},{receivedDelta:0},{hasVideo:false},
+  {videoReadyState:1},{videoPaused:true},{connection:'disconnected'},
+  {overlayOpen:true},{recoveryBusy:true},{lastManualRecoveryAt:151000},
+  {enabled:false},{recentMeaningfulInput:true}
+ ];
+ for(const scenario of rejected){
+  assert.equal(shouldRetryMetroNativeSurface({...evidence,...scenario}),false,
+   JSON.stringify(scenario));
+ }
 });
