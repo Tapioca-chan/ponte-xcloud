@@ -12,7 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface} from './metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
@@ -731,6 +731,34 @@ function startVideoHealth(){
      notifyParent({type:'xbridge-metro-compat-action',stage:'failed',
        attempt:metroRecoveryAttempts});
     }
+    visualWatchdog?.reset();
+   }
+   // VIDAA may freeze its native video plane while WebRTC decodes at 30fps
+   // and reports freezeCount=0. One time-bounded Metro-only surface probe is
+   // more useful than repeatedly attempting pause/play with no evidence.
+   // This is intentionally labeled a preventive probe, not freeze detection.
+   const opaqueZeroFreezeProbe=shouldProbeMetroOpaqueSurfaceWithoutFreezeCount({
+    title:launchedStreamingTitle,nativePlaneUnobservable:nativeBlind,
+    firstVideoAt:nativePlaneFirstVideoAt,now,
+    decodedDelta:videoPipeline.decodedDelta,receivedDelta:videoPipeline.receivedDelta,
+    hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
+    videoPaused:sample.videoPaused,connection:effectiveState,
+    overlayOpen:gameOverlayOpen,
+    recoveryBusy:videoRecoveryInFlight||Boolean(activeFreezeMarker),
+    attempts:metroRecoveryAttempts,alreadyTried:autoNativeSurfaceAttempts>0,
+    lastManualRecoveryAt,enabled:opaqueRepairEnabled,
+    recentMeaningfulInput:now-lastMeaningfulGamepadAt<30000
+   });
+   if(opaqueZeroFreezeProbe){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+    queuedMetroIntroRecovery=false;
+    notifyParent({type:'xbridge-metro-compat-action',stage:'surface',attempt:metroRecoveryAttempts});
+    status('Metro/VIDAA: teste único de nova superfície nativa para decodificação sem contador de congelamentos…');
+    const rebuilt=await autoRebuildMetroSurface();
+    traceVideo('preflight',{kind:'native-plane-preventive',
+     result:rebuilt?'play-accepted':'exception',metro:true,
+     ageSec:Math.round((now-nativePlaneFirstVideoAt)/1000)});
     visualWatchdog?.reset();
    }
    // Experimental fallback ONLY for Metro on unreadable native VIDAA planes.
