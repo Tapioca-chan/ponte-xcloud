@@ -133,6 +133,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     }finally{$('xb-logout').disabled=false}
   };
   let currentGames=[], recentGames=[], nextOffset=0, loading=false, selectedId='', currentSearch='', activeFilter='cloud';
+  let xboxRateLimitedUntil=0;
   function show(id, visible) { const el=$(id); if(el)el.hidden=!visible; }
   function authInfo(message){$('xb-auth-state').textContent=message;$('xb-login-feedback').textContent=message;}
   function allowOfficialLink(input) {
@@ -147,6 +148,10 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function loadCatalog(reset=false){
     if(loading||!authorized)return;
+    if(Date.now()<xboxRateLimitedUntil){
+      $('xb-results-count').textContent='O Xbox limitou temporariamente as consultas (HTTP 429). Aguarde aproximadamente um minuto antes de atualizar.';
+      return;
+    }
     loading=true;
     const btn=$('titles'), more=$('xb-more');
     btn.disabled=true;more.disabled=true;
@@ -167,8 +172,14 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       if(!currentGames.length)$('xb-results-count').textContent='Nenhum jogo disponível foi retornado pela Microsoft nesta conta.';
       status(currentGames.length+' títulos reais carregados. Selecione um jogo.');
     }catch(error){
-      $('xb-results-count').textContent='Não foi possível carregar os jogos: '+String(error.message||error).slice(0,160)+'. Tente Atualizar.';
-      status('O catálogo não foi carregado.');
+      if(error?.status===429){
+        xboxRateLimitedUntil=Date.now()+90000;
+        $('xb-results-count').textContent='O Xbox limitou temporariamente as solicitações (HTTP 429). Aguarde antes de atualizar; não é necessário fazer novo login.';
+        status('Limite temporário no catálogo Xbox. Sua conta permanece salva.');
+      }else{
+        $('xb-results-count').textContent='Não foi possível carregar os jogos: '+String(error.message||error).slice(0,160)+'. Tente Atualizar.';
+        status('O catálogo não foi carregado.');
+      }
     }finally{loading=false;btn.disabled=false;more.disabled=false;}
   }
   function safeCover(uri){
@@ -294,6 +305,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
   $('xb-filter-access').onclick=()=>setFilter('access');
   $('xb-filter-recent').onclick=()=>setFilter('recent');
   async function loadRecent(){
+    if(Date.now()<xboxRateLimitedUntil)return;
     try{
       const result=await api('recent');
       recentGames=Array.isArray(result.games)?result.games.filter(g=>g&&g.titleId):[];
