@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount} from '../src/metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface} from '../src/metro-native-plane-autorepair.mjs';
 const base={title:'Metro Exodus',nativePlaneUnobservable:true,
  firstVideoAt:1000,now:107000,freezeCount:1,hasVideo:true,
  videoReadyState:4,connection:'connected',overlayOpen:false,recoveryBusy:false,
@@ -86,4 +86,12 @@ test('zero WebRTC freezeCount on VIDAA permits exactly one delayed Metro-only su
   assert.equal(shouldProbeMetroOpaqueSurfaceWithoutFreezeCount({...recorded,...blocked}),false,
    JSON.stringify(blocked));
  }
+});
+
+test('Toshiba post-surface black-screen regression: do not arm a second automatic media detach',()=>{
+ assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro Exodus',nativeSurfaceRecovered:true}),true);
+ assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro Exodus',nativeSurfaceRecovered:false}),false);
+ assert.equal(shouldProtectRecoveredMetroSurface({title:'Marvel Rivals',nativeSurfaceRecovered:true}),false);
+ assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro 2033 Redux',nativeSurfaceRecovered:true}),false);
+ assert.equal(shouldProtectRecoveredMetroSurface({title:'Metro Exodus'}),false);
 });
