@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface} from '../src/metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount} from '../src/metro-native-plane-autorepair.mjs';
 const base={title:'Metro Exodus',nativePlaneUnobservable:true,
  firstVideoAt:1000,now:107000,freezeCount:1,hasVideo:true,
  videoReadyState:4,connection:'connected',overlayOpen:false,recoveryBusy:false,
@@ -65,4 +65,25 @@ test('Metro compositor stall prioritizes native surface even after early callbac
  assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,title:'Marvel Rivals'}),false);
  assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,overlayOpen:true}),false);
  assert.equal(shouldPreferNativeMetroSurface({...baseline,presentationStalled:true,connection:'disconnected'}),false);
+});
+
+test('zero WebRTC freezeCount on VIDAA permits exactly one delayed Metro-only surface probe',()=>{
+ const recorded={title:'Metro Exodus',nativePlaneUnobservable:true,firstVideoAt:1000,
+  now:128000,decodedDelta:195,receivedDelta:2000,
+  hasVideo:true,videoReadyState:4,videoPaused:false,
+  connection:'connected',overlayOpen:false,recoveryBusy:false,
+  attempts:0,alreadyTried:false,lastManualRecoveryAt:0,enabled:true,
+  recentMeaningfulInput:false};
+ assert.equal(shouldProbeMetroOpaqueSurfaceWithoutFreezeCount(recorded),true);
+ for(const blocked of [
+  {title:'Marvel Rivals'},{nativePlaneUnobservable:false},
+  {now:125000},{now:240000},{decodedDelta:0},{receivedDelta:0},
+  {hasVideo:false},{videoReadyState:1},{videoPaused:true},
+  {connection:'failed'},{overlayOpen:true},{recoveryBusy:true},
+  {attempts:1},{alreadyTried:true},{lastManualRecoveryAt:1000},
+  {enabled:false},{recentMeaningfulInput:true}
+ ]){
+  assert.equal(shouldProbeMetroOpaqueSurfaceWithoutFreezeCount({...recorded,...blocked}),false,
+   JSON.stringify(blocked));
+ }
 });
