@@ -12,7 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface} from './metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,shouldRetryMetroNativeSurface} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
@@ -36,6 +36,7 @@ let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,vide
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let queuedMetroIntroRecovery=false;
 let autoNativeSurfaceAttempts=0,autoNativeSurfaceRecovered=false;
+let firstAutoNativeSurfaceAt=0,firstAutoNativeFreezeCount:number|null=null;
 let lastVideoTelemetryAt=0;
 let freezeMarkerSerial=0;
 let activeFreezeMarker:{serial:number;baseline:any}|null=null;
@@ -93,6 +94,7 @@ function stopVideoHealth(){
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
  autoNativeSurfaceAttempts=0;autoNativeSurfaceRecovered=false;
+ firstAutoNativeSurfaceAt=0;firstAutoNativeFreezeCount=null;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
@@ -184,14 +186,15 @@ async function markVisibleFreeze(){
 // Metro-only automatic native plane recovery, no mobile/TV button needed.
 // The existing startup policy allows this once, with frozen-frame counters,
 // a completed ad grace and protection against overlays and real gameplay.
-async function autoRebuildMetroSurface():Promise<boolean>{
+async function autoRebuildMetroSurface(repeat=false):Promise<boolean>{
  if(videoRecoveryInFlight || activeFreezeMarker || gameOverlayOpen ||
     !needsXboxDialogCompatibility(launchedStreamingTitle))return false;
  const active=player;
  const video=active?.getVideoElement?.() as HTMLVideoElement|undefined;
- if(!active || !video?.srcObject || !video.isConnected || autoNativeSurfaceAttempts>=1)return false;
- // One real hardware-surface replacement per Xbox session. Do not keep
- // blanking the game after this bounded recovery has already been attempted.
+ if(!active || !video?.srcObject || !video.isConnected ||
+    (repeat ? !autoNativeSurfaceRecovered || autoNativeSurfaceAttempts!==1 : autoNativeSurfaceAttempts>=1))return false;
+ // At most two automatic native DOM replacements: one startup repair and
+ // one later evidence-backed repeat. Never perform the old strong media rebind.
  autoNativeSurfaceAttempts++;
  videoRecoveryInFlight=true;
  traceVideo('attempt',{stage:'surface',kind:'native-plane-rebuild',manual:false,
@@ -203,6 +206,7 @@ async function autoRebuildMetroSurface():Promise<boolean>{
   if(ok){
    lastStrongVideoRebindAt=Date.now();
    autoNativeSurfaceRecovered=true;
+   if(!repeat){firstAutoNativeSurfaceAt=Date.now();firstAutoNativeFreezeCount=currentVideoFreezeCount;}
    healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
    webRtcFreezeWatch.acknowledgeRecovery();
    // Do not arm the previous automatic strong follow-up: field logs show
@@ -713,6 +717,37 @@ function startVideoHealth(){
      hasVideo:Boolean(media?.srcObject),lastSoftAgoSec:lastSoftRecoveryAt?
       Math.round((now-lastSoftRecoveryAt)/1000):null
     });
+   }
+   // A real Toshiba recovered again after the owner pressed the mobile
+   // "Nova superfície" command ~80s after the first automatic rebuild.
+   // If fresh WebRTC freezes appear after that rebuild, do exactly ONE
+   // additional native DOM replacement, not the srcObject rebind that
+   // previously caused a black screen. Avoid live controller activity.
+   const secondNativeProbe=shouldRetryMetroNativeSurface({
+    title:launchedStreamingTitle,nativePlaneUnobservable:nativeBlind,
+    firstVideoAt:nativePlaneFirstVideoAt,now,
+    lastSurfaceAt:firstAutoNativeSurfaceAt,
+    baselineFreezeCount:firstAutoNativeFreezeCount,freezeCount:sample.freezeCount,
+    autoNativeSurfaceAttempts,priorSurfaceSucceeded:autoNativeSurfaceRecovered,
+    decodedDelta:videoPipeline.decodedDelta,receivedDelta:videoPipeline.receivedDelta,
+    hasVideo:Boolean(media?.srcObject),videoReadyState:sample.videoReadyState,
+    videoPaused:sample.videoPaused,connection:effectiveState,
+    overlayOpen:gameOverlayOpen,
+    recoveryBusy:videoRecoveryInFlight||Boolean(activeFreezeMarker),
+    lastManualRecoveryAt,enabled:opaqueRepairEnabled,
+    recentMeaningfulInput:now-lastMeaningfulGamepadAt<10000
+   });
+   if(secondNativeProbe){
+    metroRecoveryAttempts++;
+    metroLastRecoveryAt=now;
+    queuedMetroIntroRecovery=false;
+    status('Metro/VIDAA: novos congelamentos WebRTC; repetindo uma vez a troca da superfície nativa…');
+    notifyParent({type:'xbridge-metro-compat-action',stage:'surface',attempt:metroRecoveryAttempts});
+    const ok=await autoRebuildMetroSurface(true);
+    traceVideo('preflight',{kind:'native-plane-preventive',stage:'surface',
+     result:ok?'play-accepted':'exception',metro:true,
+     ageSec:Math.round((now-nativePlaneFirstVideoAt)/1000)});
+    visualWatchdog?.reset();
    }
    if(!protectRecoveredMetroSurface() && (doSoft || doStrong)){
     // No Game Pass advertisement skipping, no Xbox session restart, no
