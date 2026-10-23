@@ -12,7 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
-import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount} from './metro-native-plane-autorepair.mjs';
+import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface} from './metro-native-plane-autorepair.mjs';
 import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
@@ -35,7 +35,7 @@ let visualSampleCanvas:HTMLCanvasElement|null=null;
 let launchedStreamingTitle='',metroRecoveryAttempts=0,metroLastRecoveryAt=0,videoRecoveryInFlight=false,videoHealthBusy=false;
 let nativePlaneFirstVideoAt=0,nativeUnreadableSamples=0,lastManualRecoveryAt=0,gameOverlayOpen=false;
 let queuedMetroIntroRecovery=false;
-let autoNativeSurfaceAttempts=0;
+let autoNativeSurfaceAttempts=0,autoNativeSurfaceRecovered=false;
 let lastVideoTelemetryAt=0;
 let freezeMarkerSerial=0;
 let activeFreezeMarker:{serial:number;baseline:any}|null=null;
@@ -92,7 +92,7 @@ function stopVideoHealth(){
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
  queuedMetroIntroRecovery=false;lastVideoTelemetryAt=0;
- autoNativeSurfaceAttempts=0;
+ autoNativeSurfaceAttempts=0;autoNativeSurfaceRecovered=false;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
@@ -202,12 +202,16 @@ async function autoRebuildMetroSurface():Promise<boolean>{
   if(active!==player)return false;
   if(ok){
    lastStrongVideoRebindAt=Date.now();
+   autoNativeSurfaceRecovered=true;
    healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
    webRtcFreezeWatch.acknowledgeRecovery();
-   // Permit at most one separate, previously available Metro-only fallback
-   // after the grace window if hardware presentation still has problems.
-   lastSoftRecoveryAt=Date.now();
-   lastSoftFreezeCount=currentVideoFreezeCount;
+   // Do not arm the previous automatic strong follow-up: field logs show
+   // a black-screen report after an accepted second srcObject rebind.
+   // Keep user-triggered recovery available independently.
+   lastSoftRecoveryAt=0;
+   lastSoftFreezeCount=null;
+   traceVideo('preflight',{kind:'native-plane-preventive',stage:'surface',
+    result:'play-accepted',metro:true});
    status('Metro/VIDAA: nova superfície nativa criada automaticamente, sem reiniciar o jogo.');
   }else{
    status('Metro/VIDAA: nova superfície indisponível; preservando a partida.');
@@ -399,6 +403,10 @@ async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown
   traceVideo('result',{stage,result:'exception',freezeCount:currentVideoFreezeCount});
   return false;
  }finally{videoRecoveryInFlight=false}
+}
+function protectRecoveredMetroSurface(){
+ return shouldProtectRecoveredMetroSurface({title:launchedStreamingTitle,
+  nativeSurfaceRecovered:autoNativeSurfaceRecovered});
 }
 function startVideoHealth(){
  stopVideoHealth();
@@ -614,7 +622,7 @@ function startVideoHealth(){
       introFreeze?'webrtc-metro-intro':'webrtc-recurrent-freezes',
     recentFreezeEvents:freezeEvidence.recentEvents,
     visualStillMs:0,signalStatus:result.kind});
-   if(canAutoRecoverStream({
+   if(!protectRecoveredMetroSurface() && canAutoRecoverStream({
     now,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt,
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
     connection:effectiveState
@@ -649,7 +657,7 @@ function startVideoHealth(){
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
      visualStatus:'recovery-failed',signalStatus:kind});
    }
-   if(mediaTransitions.shouldRecoverWait({
+   if(!protectRecoveredMetroSurface() && mediaTransitions.shouldRecoverWait({
     now,readyState:sample.videoReadyState,paused:sample.videoPaused,
     hasVideo:Boolean(media?.srcObject),
     connected:effectiveState==='connected'||effectiveState==='completed',
@@ -706,7 +714,7 @@ function startVideoHealth(){
       Math.round((now-lastSoftRecoveryAt)/1000):null
     });
    }
-   if(doSoft || doStrong){
+   if(!protectRecoveredMetroSurface() && (doSoft || doStrong)){
     // No Game Pass advertisement skipping, no Xbox session restart, no
     // controller presses. Reconnect the DOM media element only once maximum.
     const stage=doStrong?'strong':'soft';
@@ -749,7 +757,7 @@ function startVideoHealth(){
     lastManualRecoveryAt,enabled:opaqueRepairEnabled,
     recentMeaningfulInput:now-lastMeaningfulGamepadAt<30000
    });
-   if(opaqueZeroFreezeProbe){
+   if(!protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     queuedMetroIntroRecovery=false;
@@ -768,7 +776,7 @@ function startVideoHealth(){
    // black flash and might be mistaken for the original game freeze.
    let nativeRefreshEnabled=false;
    try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
-   if(shouldPerformBlindMetroRefresh({
+   if(!protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
     now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
     lastAttemptAt:metroLastRecoveryAt,lastManualAt:lastManualRecoveryAt,
