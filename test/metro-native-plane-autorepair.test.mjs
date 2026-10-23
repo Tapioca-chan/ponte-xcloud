@@ -140,9 +140,10 @@ test('hybrid Metro: recurrent WebRTC freeze signals trigger at any minute, inclu
   ...base,now:8*60*60*1000,lastAttemptAt:8*60*60*1000-90000,
   recentFreezeEvents:3
  }),{repair:true,reason:'webrtc-suspected'});
- assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:49000}).repair,false);
+ assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,now:13000}),
+  {repair:true,reason:'webrtc-suspected'},'two independent freeze polls can recover initial Metro splash without 45-second wait');
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,now:54000}),
-  {repair:true,reason:'webrtc-suspected'},'recover by 53s after repeated freezes');
+  {repair:true,reason:'webrtc-suspected'},'recover when evidence is ready');
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentFreezeEvents:1}).repair,false);
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
 });
