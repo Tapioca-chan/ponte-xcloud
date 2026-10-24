@@ -46,3 +46,20 @@ test('remove old abandoned rooms periodically below capacity',()=>{
  assert.equal(reclaimIdleRooms(rooms,now,20),1);
  assert.equal(rooms.has('young'),true);
 });
+
+test('reclaim a four-hour disconnected orphaned Xbox stream without touching live games',()=>{
+ const rooms=new Map();
+ rooms.set('orphan',room(5*60*60*1000,{playing:true}));
+ rooms.set('live',room(6*60*60*1000,{playing:true,connected:true}));
+ for(let i=0;i<18;i++)rooms.set('room'+i,room(12000,{connected:true}));
+ assert.equal(reclaimIdleRooms(rooms,now,20),1);
+ assert.equal(rooms.has('orphan'),false);
+ assert.equal(rooms.has('live'),true);
+});
+test('keep a disconnected game for under four hours to protect a reconnection',()=>{
+ const rooms=new Map();
+ rooms.set('resume-window',room(3*60*60*1000,{playing:true}));
+ for(let i=0;i<19;i++)rooms.set('live'+i,room(900000,{connected:true}));
+ assert.equal(reclaimIdleRooms(rooms,now,20),0);
+ assert.equal(rooms.has('resume-window'),true);
+});
