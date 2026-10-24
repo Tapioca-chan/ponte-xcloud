@@ -12,6 +12,7 @@ import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {PresentationStallWatch} from './presentation-stall-watch.mjs';
 import {VideaAutoRecovery} from './vidaa-auto-recovery.mjs';
+import {VideaAutoHostMigration} from './vidaa-auto-host-migration.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,chooseMetroHybridSurfaceRecovery} from './metro-native-plane-autorepair.mjs';
@@ -80,6 +81,7 @@ let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 const presentationWatch=new PresentationStallWatch();
 const adaptiveVideaWatch=new VideaAutoRecovery();
+const autoHostMigrationWatch=new VideaAutoHostMigration();
 let lastAutoBlockedNoticeAt=0;
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
 let metroStartupKeyframes=new MetroStartupKeyframePreflight();
@@ -135,7 +137,7 @@ function stopVideoHealth(){
  autoNativeSurfaceAttempts=0;autoNativeSurfaceRecovered=false;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
- webRtcFreezeWatch.reset();presentationWatch.reset();adaptiveVideaWatch.reset();earlyFreezeWatch.reset();
+ webRtcFreezeWatch.reset();presentationWatch.reset();adaptiveVideaWatch.reset();autoHostMigrationWatch.reset();earlyFreezeWatch.reset();
  lastAutoBlockedNoticeAt=0;
  metroStartupKeyframes.reset();
 }
@@ -456,6 +458,7 @@ async function rescueFrozenVideo(){
    // The least intrusive rescue uses the existing Xbox control channel:
    // NO pause(), DOM swap, srcObject reset or reconnection.
    (player?._channels?.control as any)?.requestKeyframeRequest(true);
+   autoHostMigrationWatch.noteKeyframe(now);
    traceVideo('attempt',{stage:'keyframe',kind:'user-confirmed-visible-freeze',manual:true});
    status('Novo quadro-chave solicitado ao Xbox, sem piscar a tela. Se permanecer travado, aguarde três segundos e use Resgatar imagem novamente.');
    notifyParent({type:'xbridge-rescue-stage',step:'keyframe-requested',stage:'keyframe'});
@@ -774,10 +777,62 @@ function startVideoHealth(){
     videoAttached:Boolean(media?.srcObject),
     recentUserInput:now-lastMeaningfulGamepadAt<25000
    });
+   // User-proven emergency rescue: move the SAME Xbox MediaStream between
+   // the iframe and the TV parent document. Automatic migration is
+   // experimental, OFF by default and limited to ONE per game session.
+   // Prior keyframe + repeated NEW RTC freeze rises + active gameplay are
+   // required. The VIDAA still cannot expose the physical pixels, therefore
+   // this policy detects risk, not a guaranteed visual freeze.
+   let autoHostMigrationEnabled=false;
+   try{autoHostMigrationEnabled=localStorage.getItem('xbridge:vidaa-auto-host-migration')==='true'}catch(_){}
+   const hostEvidence=autoHostMigrationWatch.observe({
+    now,decoded:sample.decoded,received:sample.received,
+    freezeCount:sample.freezeCount,ready:sample.videoReadyState>=2,
+    paused:sample.videoPaused,
+    active:started && (effectiveState==='connected'||effectiveState==='completed') &&
+      Boolean(media?.srcObject) && player===monitoredPlayer,
+    overlay:gameOverlayOpen,recentInput:now-lastMeaningfulGamepadAt<25000,
+    busy:videoRecoveryInFlight||reconnectingMedia||Boolean(activeFreezeMarker),
+    enabled:autoHostMigrationEnabled
+   });
+   if(hostEvidence.action==='migrate'&&rendererEligible){
+    // Don't run the old surface rebind in this poll: it would create two
+    // native-plane swaps and produce another black flash.
+    autoHostMigrationWatch.acknowledgeAttempt(now);
+    videoRecoveryInFlight=true;
+    const previousHost=media?.getAttribute('data-xbridge-render-path')||'unknown';
+    traceVideo('attempt',{stage:'host-migration',kind:'native-host-migration',
+      reason:'post-keyframe-recurrent-freezes',manual:false,
+      freezeCount:sample.freezeCount,decoded:sample.decoded});
+    notifyParent({type:'xbridge-video-host-migration',step:'received',
+      from:previousHost,automatic:true});
+    try{
+     const nextHost=await monitoredPlayer.migrateNativeVideoHost?.() as string|null;
+     if(player===monitoredPlayer){
+      const okay=nextHost==='parent'||nextHost==='iframe';
+      traceVideo('result',{stage:'host-migration',kind:'native-host-migration',
+        result:okay?'play-accepted':'exception',manual:false});
+      notifyParent({type:'xbridge-video-host-migration',
+        step:okay?'migrated':'failed',from:previousHost,
+        to:okay?nextHost:null,automatic:true});
+      if(okay){
+       healthPrevious=null;visualWatchdog?.reset();
+       presentationWatch.reset();adaptiveVideaWatch.reset();
+       status('VIDAA: tentativa automática de troca de motor efetuada sem reiniciar a partida. Confira se a imagem voltou.');
+      }else status('VIDAA recusou a migração automática. Não repetiremos a troca nesta partida.');
+     }
+    }catch(_){
+     traceVideo('result',{stage:'host-migration',kind:'native-host-migration',
+       result:'exception',manual:false});
+     notifyParent({type:'xbridge-video-host-migration',step:'failed',from:previousHost,automatic:true});
+    }finally{videoRecoveryInFlight=false;}
+    return;
+   }
    if(rendererEligible && adaptiveEvidence.action==='keyframe'){
     const channel=monitoredPlayer._channels?.control as any;
     if(channel?._dataChannel?.readyState==='open'){
      adaptiveVideaWatch.acknowledgeKeyframe(now,adaptiveEvidence.reason);
+     autoHostMigrationWatch.noteKeyframe(now);
      try{
       channel.requestKeyframeRequest(true);
       traceVideo('attempt',{stage:'keyframe',kind:'adaptive-vidaa',
