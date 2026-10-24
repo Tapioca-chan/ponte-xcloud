@@ -2,32 +2,43 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ManualVideoRescue} from '../src/manual-video-rescue.mjs';
 
-test('a physical VIDAA frozen frame first gets a new native surface, not Xbox reconnect',()=>{
+test('first user rescue requests a fresh keyframe WITHOUT disconnecting existing video',()=>{
  const x=new ManualVideoRescue();
- const first=x.choose({now:100_000,playing:true,hasVideo:true});
- assert.equal(first.action,'surface');
- assert.equal(x.start('surface',100_000),true);
- assert.equal(x.choose({now:100_010,playing:true,hasVideo:true}).action,'busy');
+ assert.deepEqual(x.choose({now:100000,playing:true,hasVideo:true}),{
+  action:'keyframe',reason:'try-without-video-detach'
+ });
+ assert.equal(x.start('keyframe',100000),true);
+ assert.equal(x.choose({now:100100,playing:true,hasVideo:true}).action,'busy');
  x.finish();
- assert.equal(x.choose({now:103_000,playing:true,hasVideo:true}).action,'cooldown');
+ assert.equal(x.choose({now:102000,playing:true,hasVideo:true}).action,'cooldown');
 });
-test('second explicit user request after an unsuccessful surface escalates same Xbox session',()=>{
+test('second explicit request may rebuild surface if keyframe did not restore it',()=>{
  const x=new ManualVideoRescue();
- x.start('surface',100_000);x.finish();
- assert.deepEqual(x.choose({now:106_000,playing:true,hasVideo:true}),{
+ x.start('keyframe',100000);x.finish();
+ assert.deepEqual(x.choose({now:103500,playing:true,hasVideo:true}),{
+  action:'surface',reason:'still-frozen-after-keyframe'
+ });
+ x.start('surface',103500);x.finish();
+ assert.equal(x.choose({now:107000,playing:true,hasVideo:true}).action,'cooldown');
+});
+test('only third user confirmation renegotiates WebRTC without restarting game',()=>{
+ const x=new ManualVideoRescue();
+ x.start('keyframe',100000);x.finish();
+ x.start('surface',104000);x.finish();
+ assert.deepEqual(x.choose({now:110000,playing:true,hasVideo:true}),{
   action:'transport',reason:'still-frozen-after-surface'
  });
- x.start('transport',106_000);x.finish();
- assert.equal(x.choose({now:115_000,playing:true,hasVideo:true}).action,'cooldown');
- assert.equal(x.choose({now:167_000,playing:true,hasVideo:true}).action,'surface');
+ x.start('transport',110000);x.finish();
+ assert.equal(x.choose({now:119000,playing:true,hasVideo:true}).action,'cooldown');
+ assert.equal(x.choose({now:171000,playing:true,hasVideo:true}).action,'keyframe');
 });
-test('missing video uses transport rather than pretending native surface succeeded',()=>{
+test('when the video element is missing, use same-session transport',()=>{
  const x=new ManualVideoRescue();
- assert.equal(x.choose({now:90_000,playing:true,hasVideo:false}).action,'transport');
- assert.equal(x.choose({now:90_000,playing:false,hasVideo:false}).action,'unavailable');
+ assert.equal(x.choose({now:90000,playing:true,hasVideo:false}).action,'transport');
+ assert.equal(x.choose({now:90000,playing:false,hasVideo:false}).action,'unavailable');
 });
-test('old surface repair history expires; no blind transport restarts',()=>{
+test('an old keyframe attempt expires; fresh recovery starts safely without black flash',()=>{
  const x=new ManualVideoRescue();
- x.start('surface',100_000);x.finish();
- assert.equal(x.choose({now:450_000,playing:true,hasVideo:true}).action,'surface');
+ x.start('keyframe',100000);x.finish();
+ assert.equal(x.choose({now:450000,playing:true,hasVideo:true}).action,'keyframe');
 });
