@@ -137,6 +137,9 @@ export default class xCloudPlayer {
 
     destroy() {
         if(this._isDestoyed === false){
+            // The polling Stats helper belongs to this media session.
+            // Closing RTCPeerConnection alone does not clear JS timers.
+            this._statsHelper.destroy()
             this._peerConnection.close()
 
             if(this._peerConnection.onconnectionstatechange){
