@@ -13,8 +13,14 @@ test('preserves analog triggers, both stick directions and clamps invalid ranges
  assert.ok(Object.values(compactFrame({b:0,a:[NaN,Infinity],t:[undefined,Infinity]})).every(v=>v===0));
  assert.ok(Object.values(compactFrame(null)).every(v=>v===0));
 });
-test('only the original xBridge parent window may deliver commands',()=>{
- const parent={};assert.ok(acceptsParent({origin:'https://xcloud-tv.onrender.com',source:parent},parent));
- assert.equal(acceptsParent({origin:'https://other.example',source:parent},parent),false);
- assert.equal(acceptsParent({origin:'https://xcloud-tv.onrender.com',source:{}},parent),false);
+test('only the actual same-origin XBridge parent may deliver Xbox input and manual video rescue',()=>{
+ const parent={};const site='https://xbridge-hnd9.onrender.com';
+ assert.equal(acceptsParent({origin:site,source:parent,data:{type:'xbridge-migrate-video-host'}},parent,site),true);
+ assert.equal(acceptsParent({origin:site,source:parent,data:{type:'xbridge-rescue-video'}},parent,site),true);
+ assert.equal(acceptsParent({origin:site,source:parent,data:{type:'xbridge-input'}},parent,site),true);
+ assert.equal(acceptsParent({origin:'https://xcloud-tv.onrender.com',source:parent},parent,site),false);
+ assert.equal(acceptsParent({origin:'https://other.example',source:parent},parent,site),false);
+ assert.equal(acceptsParent({origin:site,source:{}},parent,site),false);
+ assert.equal(acceptsParent({origin:site,source:parent},parent,undefined),false);
+ assert.equal(acceptsParent({origin:'https://other.example',source:parent},parent,'*'),false);
 });
