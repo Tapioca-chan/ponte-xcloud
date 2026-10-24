@@ -61,3 +61,45 @@ test('stale getStats samples and decoder counter resets do not trigger',()=>{
  assert.equal(poll(w,145000,900,2).action,'none');
  assert.equal(poll(w,151000,100,1).action,'none');
 });
+
+
+test('two independent freezes before keyframe authorize one fallback despite no NEW post-keyframe freeze rise',()=>{
+ const w=new VideaAutoHostMigration();
+ poll(w,100000,100,0);
+ assert.equal(poll(w,106000,500,1).action,'none');
+ const pre=poll(w,112000,900,2);
+ assert.equal(pre.action,'keyframe');
+ w.noteKeyframe(112000);
+ assert.equal(poll(w,118000,1300,2).action,'none');
+ assert.equal(poll(w,124000,1700,2).action,'none');
+ const attempt=poll(w,130000,2100,2);
+ assert.equal(attempt.action,'migrate');
+ assert.equal(attempt.reason,'pre-keyframe-recurrent-freezes');
+ w.acknowledgeAttempt(130000);
+ assert.equal(poll(w,136000,2500,5).action,'none');
+});
+
+test('old pre-keyframe events cannot produce a migration when no fresh repeats exist',()=>{
+ const w=new VideaAutoHostMigration();
+ poll(w,100000,100,0);
+ poll(w,106000,500,1);
+ // Independent freeze reports are separated by more than the 35s window.
+ assert.equal(poll(w,150000,1000,2).action,'none');
+ assert.equal(poll(w,156000,1400,3).action,'none');
+ const next=poll(w,162000,1800,4);
+ assert.equal(next.action,'keyframe');
+ w.noteKeyframe(162000);
+ // A paused decoder cannot satisfy the post-keyframe progress guard.
+ poll(w,168000,1800,4);
+ poll(w,174000,1800,4);
+ assert.equal(poll(w,180000,1800,4).action,'none');
+});
+
+test('surface failover still requires opt-in and live controller input',()=>{
+ const w=new VideaAutoHostMigration();
+ poll(w,100000,100,0);
+ poll(w,106000,500,1,{enabled:false});
+ assert.equal(poll(w,112000,900,2,{enabled:false}).action,'none');
+ assert.equal(poll(w,118000,1300,3,{recentInput:false}).action,'none');
+ assert.equal(w.keyframeAt,0);
+});
