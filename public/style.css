@@ -615,3 +615,25 @@ body.xbridge-embedded{background:#070c17!important;color:#f3f7ff!important;font-
  .xbridge-embedded .xb-game-hub-cover{max-width:160px}
  .xbridge-embedded .xb-game-hub-text h2{font-size:36px}
 }
+
+
+/* Native VIDAA A/B experiment — renderer inside its own WebRTC document.
+   The usual parent-hoisted hardware video plane is bypassed entirely.
+   Keep the video box at final geometry from the first track event; never
+   move it to another document or resize after 'playing'. */
+body.xbridge-embedded.xb-video-inframe #playerContainer{
+ position:fixed!important;inset:0!important;z-index:1000;
+ width:100vw!important;height:100vh!important;
+ overflow:hidden!important;background:#000!important;
+ pointer-events:none;
+}
+body.xbridge-embedded.xb-video-inframe #playerContainer:empty{
+ display:none!important;
+}
+body.xbridge-embedded.xb-video-inframe #playerContainer video{
+ display:block!important;position:absolute!important;
+ top:0!important;left:0!important;width:100%!important;
+ height:100%!important;max-width:none!important;max-height:none!important;
+ object-fit:contain!important;object-position:center center!important;
+ transform:none!important;pointer-events:none;
+}
