@@ -9,7 +9,13 @@ export function reclaimIdleRooms(rooms, now=Date.now(), maxRooms=20){
   const age=Number.isFinite(last)?Math.max(0,now-last):0;
   const live=room?.sockets instanceof Map &&
     [...room.sockets.values()].some(socket=>socket?.readyState===1);
-  if(live||room?.session||room?.busy)continue;
+  if(live)continue;
+  // A disconnected player room may retain its old Xbox session object after
+  // a TV crash. Keeping it FOREVER eventually fills the 20-room limit and
+  // returns 429 even though no device is connected. Do not touch connected
+  // rooms; only reclaim orphaned sessions after at least FOUR hours idle.
+  if(room?.session&&age<4*60*60*1000)continue;
+  if(room?.busy&&age<2*60*60*1000)continue;
   // A pending device-link login may take the full Microsoft verification
   // window; never evict an otherwise idle authorization too early.
   if(room?.device && age<20*60*1000)continue;
