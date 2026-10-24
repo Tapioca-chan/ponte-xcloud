@@ -134,7 +134,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
           <button id="xb-logout" class="xb-button xb-button-danger" type="button">Desconectar conta Xbox deste navegador</button>
         </div>
         </div>
-        <p class="xb-settings-hint">O xBridge mantém a autorização criptografada no banco MongoDB separado do bot. Reabrir o navegador ou reiniciar o servidor normalmente restaura a sessão. A Microsoft poderá exigir nova autorização quando ela for revogada ou expirar.</p>
+        <p class="xb-settings-hint">Sua autorização Xbox pode ser restaurada ao reabrir o console. A Microsoft poderá solicitar nova confirmação caso a sessão expire ou seja revogada. Nenhum dado técnico de armazenamento aparece na biblioteca ou nos favoritos.</p>
       </aside>
     </div>`;
   if(requestedGame){
