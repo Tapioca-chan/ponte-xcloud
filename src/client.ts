@@ -500,7 +500,15 @@ function startVideoHealth(){
  // Xbox free-tier ads precede the game: do not use a blind boot timer.
  // Watch decoded + presented frames and sampled visual motion continuously.
  visualWatchdog=new VideoFreezeWatchdog();
- visualSampleCanvas=document.createElement('canvas');
+ // This Toshiba uses an opaque hardware video overlay. drawImage(video) +
+ // getImageData() can synchronously read back the GPU's decoded surface and
+ // block the decoder / compositor. Never do it during normal play.
+ // Preserve this opt-in diagnostic only for an explicitly instrumented A/B
+ // session, and do not expose raw pixels outside this browser.
+ let optInVideoReadback=false;
+ try{optInVideoReadback=localStorage.getItem('xbridge:unsafe-video-canvas-probe')==='true'}catch(_){}
+ visualSampleCanvas=optInVideoReadback?document.createElement('canvas'):null;
+ traceVideo('render-guard',{gpuReadback:optInVideoReadback?'experimental':'disabled'});
  lastMeaningfulGamepadAt=Date.now();
  traceVideo('start',{metro:needsXboxDialogCompatibility(launchedStreamingTitle)});
  videoHealthTimer=setInterval(async()=>{
@@ -590,7 +598,7 @@ function startVideoHealth(){
    const now=Date.now();
    const isMetro=needsXboxDialogCompatibility(launchedStreamingTitle);
    const visual=visualWatchdog?.observe({
-    now,signature:sampleVideoLuma(media,visualSampleCanvas),
+    now,signature:visualSampleCanvas?sampleVideoLuma(media,visualSampleCanvas):null,
     decoded:sample.decoded,presented:sample.presented,
     received:sample.received,recentInput:now-lastMeaningfulGamepadAt<20000,
     connection:sample.connection,videoReadyState:sample.videoReadyState
