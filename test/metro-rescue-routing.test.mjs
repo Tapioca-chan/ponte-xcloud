@@ -19,5 +19,5 @@ test('rescue restarts native surface first, transport only after explicit second
  assert.match(client,/manualVideoRescue\.choose\(/);
  assert.match(client,/await rebuildNativeVideoSurfaceWithEvidence\(\)/);
  assert.match(client,/await reconnectXboxMediaWithoutRestart\(\)/);
- assert.match(client,/if\(videoRecoveryInFlight\|\|reconnectingMedia\)/);
+ assert.match(client,/choice\.action==='busy'\|\|videoRecoveryInFlight\|\|reconnectingMedia/);
 });
