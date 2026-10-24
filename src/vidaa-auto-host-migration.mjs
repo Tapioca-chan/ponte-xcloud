@@ -81,8 +81,14 @@ export class VideaAutoHostMigration{
   }
   if(now-this.keyframeAt<12000)return state('keyframe-settling');
   if(now-this.keyframeAt>90000){
+   // Allow a NEW evidence cycle later in the same game when no migration
+   // happened. The one-migration-per-session limit remains authoritative.
+   this.keyframeAt=0;
+   this.keyframePrimedByFreezes=false;
    this.postKeyframeFreezeSamples=0;this.totalPostKeyframeFreezeRise=0;
-   return state('keyframe-expired');
+   this.postKeyframeProgressSamples=0;
+   this.preKeyframeFreezeSamples=0;
+   return state('keyframe-expired-rearmed');
   }
   if(this.lastMigrationAt&&now-this.lastMigrationAt<300000)return state('cooldown');
   if(!progressing){
