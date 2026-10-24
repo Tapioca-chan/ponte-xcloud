@@ -30,13 +30,18 @@ export default class xCloudPlayer {
     private _videoComponent: VideoComponent | WebGpuComponent | undefined
     private _audioComponent: AudioComponent | undefined
 
-    constructor(elementId: string) {
-        console.log('xCloudPlayer constructing...');
+    constructor(elementId: string, codecMode: 'browser' | 'legacy' = 'browser') {
+        console.log('[XBridge] WebRTC video codec negotiation mode:', codecMode);
 
         this._elementId = elementId;
         this._peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
         const videoTransceiver = this._peerConnection.addTransceiver('video', { direction: 'recvonly' })
-        if (videoTransceiver.setCodecPreferences) {
+        // Previously we ALWAYS forced a custom VIDAA H.264 priority order.
+        // That bypasses the browser's native codec negotiation and may select
+        // a hardware decoder profile that stutters on older TV firmware.
+        // By default use the browser's own preferences for an unbiased A/B.
+        // Explicit legacy mode preserves the old behavior as a fallback.
+        if (codecMode === 'legacy' && videoTransceiver.setCodecPreferences) {
             const available = this._sdpHelper.getDefaultCodecPreferences()
             if (available.length > 0) videoTransceiver.setCodecPreferences(available)
         }
