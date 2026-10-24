@@ -360,10 +360,12 @@ async function recoverManuallyWithEvidence(){
 async function rescueFrozenVideo(){
  const now=Date.now();
  const video=player?.getVideoElement?.() as HTMLVideoElement|undefined;
- // If rendering in the iframe there is no parent native plane to rebuild:
- // the first explicit user rescue can directly renegotiate this SAME session.
- const hasRecoverableSurface=Boolean(video?.srcObject &&
-   video.getAttribute('data-xbridge-top-video')==='1');
+ // Both parent-hosted and iframe-hosted HTMLVideoElements now support a
+ // native-plane replacement using the SAME MediaStream. First rescue always
+ // attempts that safe operation. Only an explicit second request escalates to
+ // WebRTC renegotiation if the physical Toshiba picture is still frozen.
+ const hasRecoverableSurface=Boolean(video?.srcObject && video.isConnected &&
+   ['parent','iframe'].includes(video.getAttribute('data-xbridge-render-path')||''));
  const choice=manualVideoRescue.choose({now,playing:started,hasVideo:hasRecoverableSurface});
  if(choice.action==='busy'||videoRecoveryInFlight||reconnectingMedia){
   status('Já existe uma recuperação de imagem ou transmissão em andamento.');
