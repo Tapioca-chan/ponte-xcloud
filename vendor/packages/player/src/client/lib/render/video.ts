@@ -321,6 +321,102 @@ export default class VideoComponent {
         }
     }
 
+    // Emergency VIDAA compositor migration. Native browser video overlays
+    // may remain stuck even when WebRTC renegotiates successfully. Move the
+    // SAME live MediaStream to the other same-origin document as a fresh
+    // decoder/video surface; do not restart Xbox, controls or audio.
+    //
+    // This is EXPLICIT-USER-ONLY until field tested: crossing documents may
+    // flash black on older Toshiba firmware. Revert the old surface if the
+    // new document rejects play().
+    async migrateNativeVideoHost():Promise<'parent'|'iframe'|null> {
+        if(this._surfaceRebuildBusy)return null
+        const old=this._element
+        const stream=old?.srcObject
+        const oldHost=old?.parentElement
+        const current=old?.getAttribute('data-xbridge-render-path')
+        if(!old || !oldHost || !stream || !old.isConnected ||
+            (current!=='iframe' && current!=='parent') ||
+            window.parent===window)return null
+        let target:HTMLElement|null=null
+        let targetDocument:Document=document
+        const next=current==='iframe'?'parent':'iframe'
+        try{
+            if(window.parent.location.origin!==window.location.origin)return null
+            if(next==='parent'){
+                target=window.parent.document.getElementById('xbridge-top-video')
+                targetDocument=window.parent.document
+            }else{
+                target=document.getElementById(this._player.getElementId())
+            }
+        }catch(_){return null}
+        if(!target || target===oldHost)return null
+        this._surfaceRebuildBusy=true
+        const previousClass=document.body.classList.contains('xb-video-inframe')
+        const replacement=targetDocument.createElement('video') as HTMLVideoElement & {__xbridgePresentedFrames?:number}
+        replacement.autoplay=true
+        replacement.muted=true
+        replacement.playsInline=true
+        replacement.setAttribute('playsinline','')
+        replacement.setAttribute('webkit-playsinline','')
+        replacement.setAttribute('data-xbridge-render-path',next)
+        replacement.style.cssText=old.style.cssText
+        // Cross-document plane uses the host's CSS viewport, not the
+        // previous document's physical pixel-sized layout.
+        replacement.style.setProperty('display','block','important')
+        replacement.style.setProperty('position','absolute','important')
+        replacement.style.setProperty('inset','0','important')
+        replacement.style.setProperty('width','100%','important')
+        replacement.style.setProperty('height','100%','important')
+        replacement.style.setProperty('max-width','none','important')
+        replacement.style.setProperty('max-height','none','important')
+        replacement.style.setProperty('object-fit','contain','important')
+        replacement.style.setProperty('object-position','center center','important')
+        replacement.style.pointerEvents='none'
+        if(next==='parent')replacement.setAttribute('data-xbridge-top-video','1')
+        replacement.__xbridgePresentedFrames=0
+        let changed=false
+        try{
+            // Never attach the same stream to TWO VIDAA video planes.
+            old.pause()
+            old.srcObject=null
+            old.remove()
+            changed=true
+            document.body.classList.toggle('xb-video-inframe',next==='iframe')
+            target.appendChild(replacement)
+            this._element=replacement
+            replacement.srcObject=stream
+            this.beginFrameMetadataLoop(replacement)
+            let rejected=false
+            await Promise.race([
+                Promise.resolve(replacement.play()).catch(()=>{rejected=true}),
+                new Promise<void>(resolve=>setTimeout(resolve,2200))
+            ])
+            if(rejected || replacement.paused)throw new Error('vidaa-video-host-rejected')
+            ;(this._player as any).__xbridgeVideoHostMode=next
+            try{
+                window.parent.postMessage({type:'xbridge-video-attached',
+                    topLevel:next==='parent',renderPath:next,migrated:true},location.origin)
+            }catch(_){}
+            return next
+        }catch(_){
+            try{
+                replacement.pause()
+                replacement.srcObject=null
+                replacement.remove()
+                document.body.classList.toggle('xb-video-inframe',previousClass)
+                if(changed)oldHost.appendChild(old)
+                old.srcObject=stream
+                this._element=old
+                this.beginFrameMetadataLoop(old)
+                void old.play().catch(()=>{})
+            }catch(_){}
+            return null
+        }finally{
+            this._surfaceRebuildBusy=false
+        }
+    }
+
     getElement(){
         return this._element
     }
