@@ -10,6 +10,7 @@ import {shouldPerformBlindMetroRefresh} from './vidaa-blind-recovery.mjs';
 import {MediaTransitionWatch} from './video-transition-health.mjs';
 import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
+import {PresentationStallWatch} from './presentation-stall-watch.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,chooseMetroHybridSurfaceRecovery} from './metro-native-plane-autorepair.mjs';
@@ -72,6 +73,7 @@ const manualVideoRescue=new ManualVideoRescue();
 let activeFreezeMarker:{serial:number;baseline:any}|null=null;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
+const presentationWatch=new PresentationStallWatch();
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
 let metroStartupKeyframes=new MetroStartupKeyframePreflight();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
@@ -126,7 +128,7 @@ function stopVideoHealth(){
  autoNativeSurfaceAttempts=0;autoNativeSurfaceRecovered=false;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
- webRtcFreezeWatch.reset();earlyFreezeWatch.reset();
+ webRtcFreezeWatch.reset();presentationWatch.reset();earlyFreezeWatch.reset();
  metroStartupKeyframes.reset();
 }
 // Coarse operational media state only; no video pixels, raw gamepad packets,
@@ -151,13 +153,15 @@ async function captureFreezeSample():Promise<any|null>{
    if(x.type==='inbound-rtp' && (x.kind==='audio'||x.mediaType==='audio'))audio=x;
   });
   const safe=(n:any)=>typeof n==='number'&&Number.isFinite(n)&&n>=0?n:null;
-  const presented=safe(media.__xbridgePresentedFrames);
+  const presented=safe(inbound?.framesRendered) ??
+   (typeof media.requestVideoFrameCallback==='function'?
+     safe(media.__xbridgePresentedFrames):null);
   const quality=media.getVideoPlaybackQuality?.();
   const codec=stats.get(inbound?.codecId)?.mimeType;
   return {
    at:Date.now(),decoded:safe(inbound?.framesDecoded),received:safe(inbound?.packetsReceived),
    audioReceived:safe(audio?.packetsReceived),freezeCount:safe(inbound?.freezeCount),
-   fps:safe(inbound?.framesPerSecond),presented:presented!==null&&presented>0?presented:null,
+   fps:safe(inbound?.framesPerSecond),presented,
    currentTime:safe(media.currentTime),ready:media.readyState>=2,
    paused:media.paused,width:safe(media.videoWidth),height:safe(media.videoHeight),
    dropped:safe(quality?.droppedVideoFrames),totalFrames:safe(quality?.totalVideoFrames),
@@ -558,10 +562,16 @@ function startVideoHealth(){
     qualityFrames=Number(quality?.totalVideoFrames)||0;
     droppedFrames=Number(quality?.droppedVideoFrames)||0;
    } catch(_){}
-   // getVideoPlaybackQuality().totalVideoFrames includes displayed AND dropped
-   // frames. It is NOT a proof that a frame reached the display compositor.
-   // Use only requestVideoFrameCallback for that stronger signal.
-   const presented=compositorFrames>0?compositorFrames:null;
+   // Renderer progress is separate from decoding. WebRTC framesRendered is
+   // counted AFTER rendering; use requestVideoFrameCallback as a fallback
+   // when supported, never assume that a counter initialized at zero means
+   // the browser actually provides presentation callbacks.
+   // getVideoPlaybackQuality() counts displayed+discarded and is NOT
+   // strong evidence of successful presentation.
+   const statsRendered=Number.isFinite(inbound.framesRendered)?
+     Number(inbound.framesRendered):null;
+   const presented=statsRendered!==null?statsRendered:
+     (typeof media?.requestVideoFrameCallback==='function'?compositorFrames:null);
    const sample={
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
@@ -656,6 +666,46 @@ function startVideoHealth(){
    const effectiveState=(connectedState==='failed'||connectedState==='closed'||connectedState==='disconnected')
      ?connectedState:(sample.videoReadyState>=2 &&
        (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
+   // New conservative recovery path for ALL games: only intervene when
+   // the browser exposes actual rendered-frame progress and that counter
+   // STOPS over two consecutive samples while RTP and decoded frames advance.
+   // Ordinary freezeCount bursts, a static Xbox menu, or absent VIDAA
+   // compositor counters never trigger a native surface reset.
+   const presentationEvidence=presentationWatch.observe({
+    now,decoded:sample.decoded,rendered:sample.presented,received:sample.received,
+    ready:sample.videoReadyState>=2,paused:sample.videoPaused,
+    overlay:gameOverlayOpen,
+    active:started&&(effectiveState==='connected'||effectiveState==='completed')
+   });
+   let rendererRescueEnabled=true;
+   try{rendererRescueEnabled=localStorage.getItem('xbridge:vidaa-renderer-repair')!=='false'}catch(_){}
+   if(presentationEvidence.confirmed && rendererRescueEnabled &&
+      !videoRecoveryInFlight && !reconnectingMedia && !activeFreezeMarker &&
+      !gameOverlayOpen && Boolean(media?.srcObject) && player===monitoredPlayer){
+    // Cooldown starts BEFORE the asynchronous rebuild to avoid any duplicate
+    // run while VIDAA's play() promise is pending or returning late.
+    presentationWatch.acknowledge(now);
+    videoRecoveryInFlight=true;
+    traceVideo('attempt',{stage:'surface',kind:'decoded-not-rendered',
+      decoded:sample.decoded,presented:sample.presented,manual:false});
+    notifyParent({type:'xbridge-video-recovery-start',reason:'automatic',
+      kind:'decoded-not-rendered',stage:'surface'});
+    try{
+      const ok=await monitoredPlayer.rebuildNativeVideoSurface?.()===true;
+      if(player===monitoredPlayer){
+       traceVideo('result',{stage:'surface',kind:'decoded-not-rendered',
+         result:ok?'play-accepted':'exception',manual:false});
+       notifyParent({type:'xbridge-video-recovery',
+         step:ok?'surface':'failed',kind:'decoded-not-rendered',stage:'surface'});
+       status(ok?'VIDAA: superfície de vídeo recriada após falha confirmada de apresentação. Partida Xbox mantida.':
+         'VIDAA: recuperação da superfície não foi aceita. Use Resgatar imagem manualmente.');
+       if(ok){healthPrevious=null;visualWatchdog?.reset();}
+      }
+    }catch(_){
+      traceVideo('result',{stage:'surface',kind:'decoded-not-rendered',
+        result:'exception',manual:false});
+    }finally{videoRecoveryInFlight=false;}
+   }
    // Before Metro reaches gameplay, request fresh decoder reference frames
    // when early WebRTC freezes occur. This is proactive but non-destructive:
    // unlike Recover Image it never detaches srcObject or flashes the ad.
@@ -810,7 +860,8 @@ function startVideoHealth(){
     traceVideo('heartbeat',{
      metro:needsXboxDialogCompatibility(launchedStreamingTitle),
      ageSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
-     freezeCount:sample.freezeCount,earlyFreezeRises,decoded:sample.decoded,
+     freezeCount:sample.freezeCount,earlyFreezeRises,
+     decoded:sample.decoded,presented:sample.presented,
      fps:decodeHealth.fps,decodeMs:decodeHealth.decodeMs,
      packetLossPct:decodeHealth.lossPercent,jitterMs:decodeHealth.jitterMs,
      frameWidth:decodeHealth.width,frameHeight:decodeHealth.height,
