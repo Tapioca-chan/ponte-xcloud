@@ -141,12 +141,10 @@ export function shouldRetryMetroNativeSurface({
 }
 
 
-// Continuous Metro/VIDAA recovery policy: unlike the original two-attempt
-// introduction workaround, this remains active throughout arbitrarily long
-// gameplay. WebRTC freeze bursts are only SUSPECTED visual stalls because
-// VIDAA provides no compositor pixel readback. A separate idle-time fallback
-// works even if WebRTC freezeCount stays zero. Cooldowns prevent loops; they
-// are not a maximum session age or attempt cap.
+// Evidence-gated Metro/VIDAA recovery: independent visual/presentation signals
+// or repeated WebRTC freeze events may justify a bounded repair. Never mutate
+// a functioning decoder on a simple clock or idle timer: on some Toshiba
+// devices replacing a native surface produces a black flash.
 export function chooseMetroHybridSurfaceRecovery({
  title='',now=0,firstVideoAt=0,lastAttemptAt=0,lastManualRecoveryAt=0,
  nativePlaneUnobservable=false,visualFrozen=false,presentationStalled=false,
@@ -183,12 +181,10 @@ export function chooseMetroHybridSurfaceRecovery({
   return {repair:true,reason:'visual-evidence'};
  if(repairCooldownDone && recentFreezeEvents>=2 && !recentMeaningfulInput)
   return {repair:true,reason:'webrtc-suspected'};
- // If the opaque VIDAA plane conceals a real freeze and the counters remain
- // zero, periodically refresh only while the gamepad has been idle.
- // Rechecked on each watchdog tick, throughout the WHOLE game session.
- if(!recentMeaningfulInput && sinceFirst>=80000 &&
-    (lastAttemptAt>0 || lastManualRecoveryAt>0
-     ? sinceRepair>=120000 : sinceRepair>=80000))
-  return {repair:true,reason:'timed-idle'};
+ // Never rebuild the native video plane on an idle timer. Xbox preroll,
+ // a still title screen and an inactive game are all normal and cannot prove
+ // a VIDAA compositor freeze. Blind repairs themselves cause black flashes.
+ // Keep the native plane stable unless independent signal/presentation
+ // evidence is present. An opaque, unobservable freeze needs manual repair.
  return no;
 }
