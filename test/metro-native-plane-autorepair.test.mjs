@@ -148,7 +148,7 @@ test('hybrid Metro: recurrent WebRTC freeze signals trigger at any minute, inclu
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,recentMeaningfulInput:true}).repair,false);
 });
 
-test('hybrid Metro: idle timer works with freezeCount zero forever, with 2min initial and recurrent cadence',()=>{
+test('hybrid Metro: idle timer NEVER triggers blind rebuilding when no freeze evidence exists',()=>{
  const base={
   title:'Metro Exodus',nativePlaneUnobservable:true,
   firstVideoAt:1000,now:122000,lastAttemptAt:0,lastManualRecoveryAt:0,
@@ -158,16 +158,16 @@ test('hybrid Metro: idle timer works with freezeCount zero forever, with 2min in
   recentMeaningfulInput:false,enabled:true
  };
  assert.deepEqual(chooseMetroHybridSurfaceRecovery(base),
-  {repair:true,reason:'timed-idle'});
+  {repair:false,reason:'none'});
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,now:79000}).repair,false);
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,now:83000}),
-  {repair:true,reason:'timed-idle'},'first idle recovery at about 80 seconds');
+  {repair:false,reason:'none'},'an idle video is not proof of a frozen compositor');
  assert.equal(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:200000}).repair,false);
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({...base,lastAttemptAt:90000,now:271000}),
-  {repair:true,reason:'timed-idle'});
+  {repair:false,reason:'none'});
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({
   ...base,now:7*60*60*1000,lastAttemptAt:7*60*60*1000-121000
- }),{repair:true,reason:'timed-idle'});
+ }),{repair:false,reason:'none'});
  assert.deepEqual(chooseMetroHybridSurfaceRecovery({
   ...base,now:600000,lastAttemptAt:541000,recentFreezeEvents:2
  }),{repair:true,reason:'webrtc-suspected'},'later freeze recovery after about 59s');
