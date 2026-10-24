@@ -24,6 +24,8 @@ export default class VideoComponent {
         let topLevel = false
         const iframeNativeMode=(this._player as any).__xbridgeVideoHostMode==='iframe'
             && window.parent!==window
+        const dedicatedNativeTvMode=(this._player as any).__xbridgeVideoHostMode==='native-tv'
+            && window.parent!==window
         try {
             if (!iframeNativeMode && window.parent !== window && window.parent.location.origin === window.location.origin) {
                 const candidate = window.parent.document.getElementById('xbridge-top-video')
@@ -42,6 +44,19 @@ export default class VideoComponent {
         // rebuilt without renegotiating or restarting Xbox WebRTC.
         const renderPath=topLevel?'parent':iframeNativeMode?'iframe':'standalone'
         videoElement.setAttribute('data-xbridge-render-path',renderPath)
+        if(dedicatedNativeTvMode && topLevel){
+            videoElement.setAttribute('data-xbridge-render-pipeline','native-tv')
+            // Prepare the ONLY native video host before assigning srcObject.
+            // The old container was positioned inside the player's flex area,
+            // leaving a non-fullscreen physical overlay on Toshiba VIDAA.
+            host?.style.setProperty('position','fixed','important')
+            host?.style.setProperty('inset','0','important')
+            host?.style.setProperty('width','100vw','important')
+            host?.style.setProperty('height','100vh','important')
+            host?.style.setProperty('margin','0','important')
+            host?.style.setProperty('overflow','hidden','important')
+            host?.style.setProperty('pointer-events','none','important')
+        }
         // Prepare compatible games' native VIDAA video plane BEFORE setting srcObject.
         // Initial media attachment can allocate the hardware/software plane
         // at whatever layout size is present on the first frame. Late physical
@@ -73,7 +88,10 @@ export default class VideoComponent {
                 const screenW=Number(root.screen?.width)||viewportW
                 const screenH=Number(root.screen?.height)||viewportH
                 const scaleMode=root.localStorage.getItem('xbridge:video-plane-scale')||'physical'
-                const physical=topLevel&&scaleMode==='physical'&&screenW/viewportW>1.05&&screenH/viewportH>1.05
+                // The dedicated TV pipeline uses physical pixels regardless
+                // of legacy CSS-scale selections, exclusively at first mount.
+                const physical=topLevel&&(dedicatedNativeTvMode||scaleMode==='physical')&&
+                    screenW/viewportW>1.05&&screenH/viewportH>1.05
                 videoElement.style.setProperty('display','block','important')
                 videoElement.style.setProperty('position','absolute','important')
                 videoElement.style.setProperty('top','0','important')
@@ -84,6 +102,7 @@ export default class VideoComponent {
                 videoElement.style.setProperty('max-height','none','important')
                 videoElement.style.setProperty('object-fit','contain','important')
                 videoElement.style.setProperty('object-position',iframeNativeMode?'center center':'left top','important')
+                videoElement.style.setProperty('transform','none','important')
             } catch (_) {}
         }
         // Presentation counter is updated by the browser's compositor callback,
@@ -169,7 +188,7 @@ export default class VideoComponent {
             this._element.srcObject=stream
             try {
                 window.parent.postMessage({type:'xbridge-video-prepared',
-                    topLevel:true,prebound:true},location.origin)
+                    topLevel,prebound:true,pipeline:dedicatedNativeTvMode?'native-tv':renderPath},location.origin)
             } catch (_) {}
         }
         // CSS pixels and the native video decoder can use different viewports
@@ -204,7 +223,8 @@ export default class VideoComponent {
         if(topLevel || iframeNativeMode) {
             try {
                 window.parent.postMessage({type:'xbridge-video-attached',
-                    topLevel,renderPath:iframeNativeMode?'iframe':'parent'},location.origin)
+                    topLevel,renderPath:iframeNativeMode?'iframe':'parent',
+                    pipeline:dedicatedNativeTvMode&&topLevel?'native-tv':renderPath},location.origin)
             } catch (_) {}
         }
         // VIDAA may block autoplay despite muted inline video; the user can
