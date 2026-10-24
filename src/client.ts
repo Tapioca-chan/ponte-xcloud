@@ -82,6 +82,8 @@ let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 const presentationWatch=new PresentationStallWatch();
 const adaptiveVideaWatch=new VideaAutoRecovery();
 const autoHostMigrationWatch=new VideaAutoHostMigration();
+let autoHostMigrationOverride:boolean|null=null;
+let lastHostWatchReason='',lastHostWatchAt=0;
 let lastAutoBlockedNoticeAt=0;
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
 let metroStartupKeyframes=new MetroStartupKeyframePreflight();
@@ -138,6 +140,7 @@ function stopVideoHealth(){
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
  webRtcFreezeWatch.reset();presentationWatch.reset();adaptiveVideaWatch.reset();autoHostMigrationWatch.reset();earlyFreezeWatch.reset();
+ lastHostWatchReason='';lastHostWatchAt=0;
  lastAutoBlockedNoticeAt=0;
  metroStartupKeyframes.reset();
 }
@@ -759,9 +762,10 @@ function startVideoHealth(){
     // inferred from old experimental Metro toggles.
     aggressiveSurfaceAllowed=localStorage.getItem('xbridge:vidaa-allow-auto-surface-rebuild')==='true';
    }catch(_){}
-   const rendererEligible=rendererRescueEnabled && !videoRecoveryInFlight &&
+   const hostEligible=!videoRecoveryInFlight &&
      !reconnectingMedia && !activeFreezeMarker && !gameOverlayOpen &&
      Boolean(media?.srcObject) && player===monitoredPlayer;
+   const rendererEligible=rendererRescueEnabled && hostEligible;
    // In opaque VIDAA native video mode we cannot prove what's on the physical
    // screen. Two independent RTC freeze counter rises can nevertheless
    // justify a ZERO-FLASH keyframe request. A disruptive video surface swap
@@ -784,7 +788,8 @@ function startVideoHealth(){
    // required. The VIDAA still cannot expose the physical pixels, therefore
    // this policy detects risk, not a guaranteed visual freeze.
    let autoHostMigrationEnabled=false;
-   try{autoHostMigrationEnabled=localStorage.getItem('xbridge:vidaa-auto-host-migration')==='true'}catch(_){}
+   if(autoHostMigrationOverride!==null)autoHostMigrationEnabled=autoHostMigrationOverride;
+   else try{autoHostMigrationEnabled=localStorage.getItem('xbridge:vidaa-auto-host-migration')==='true'}catch(_){}
    const hostEvidence=autoHostMigrationWatch.observe({
     now,decoded:sample.decoded,received:sample.received,
     freezeCount:sample.freezeCount,ready:sample.videoReadyState>=2,
@@ -795,14 +800,35 @@ function startVideoHealth(){
     busy:videoRecoveryInFlight||reconnectingMedia||Boolean(activeFreezeMarker),
     enabled:autoHostMigrationEnabled
    });
-   if(hostEvidence.action==='migrate'&&rendererEligible){
+   if(autoHostMigrationEnabled && (hostEvidence.reason!==lastHostWatchReason || now-lastHostWatchAt>18000)){
+    lastHostWatchReason=hostEvidence.reason;lastHostWatchAt=now;
+    notifyParent({type:'xbridge-auto-host-watch',reason:hostEvidence.reason,
+      action:hostEvidence.action,enabled:true,attempts:autoHostMigrationWatch.attempts});
+   }
+   // Independent zero-flash preflight for the explicitly enabled failover.
+   // Don't require the other renderer-repair option to be enabled.
+   if(hostEvidence.action==='keyframe' && hostEligible){
+    const control=monitoredPlayer._channels?.control as any;
+    if(control?._dataChannel?.readyState==='open'){
+     try{
+      control.requestKeyframeRequest(true);
+      autoHostMigrationWatch.noteKeyframe(now);
+      traceVideo('attempt',{stage:'keyframe',kind:'host-migration-preflight',manual:false});
+      notifyParent({type:'xbridge-auto-host-watch',reason:'keyframe-requested',
+        action:'watching',enabled:true,attempts:autoHostMigrationWatch.attempts});
+      status('VIDAA: verificando travamentos recorrentes após solicitar novo quadro-chave.');
+     }catch(_){}
+     return;
+    }
+   }
+   if(hostEvidence.action==='migrate'&&hostEligible){
     // Don't run the old surface rebind in this poll: it would create two
     // native-plane swaps and produce another black flash.
     autoHostMigrationWatch.acknowledgeAttempt(now);
     videoRecoveryInFlight=true;
     const previousHost=media?.getAttribute('data-xbridge-render-path')||'unknown';
     traceVideo('attempt',{stage:'host-migration',kind:'native-host-migration',
-      reason:'post-keyframe-recurrent-freezes',manual:false,
+      reason:hostEvidence.reason,manual:false,
       freezeCount:sample.freezeCount,decoded:sample.decoded});
     notifyParent({type:'xbridge-video-host-migration',step:'received',
       from:previousHost,automatic:true});
@@ -1704,6 +1730,12 @@ if (embedded) {
     manual:true});
    notifyParent({type:'xbridge-rescue-stage',step:'received'});
    void rescueFrozenVideo();
+  } else if(event.data?.type==='xbridge-set-auto-host-migration'){
+   // Applied only from the validated same-origin TV parent.
+   autoHostMigrationOverride=event.data.enabled===true;
+   notifyParent({type:'xbridge-auto-host-watch',
+    reason:autoHostMigrationOverride?'enabled':'opted-out',
+    action:'none',enabled:autoHostMigrationOverride,attempts:autoHostMigrationWatch.attempts});
   } else if(event.data?.type==='xbridge-migrate-video-host'){
    void migrateNativeVideoHostWithEvidence();
   } else if(event.data?.type==='xbridge-reconnect-media'){
