@@ -56,7 +56,11 @@ function startIdleMonitor(){
  },15000);
 }
 function canAutoInterruptVideo(){
- try{return localStorage.getItem('xbridge:video-auto-repair')==='true'}catch{return false}
+ // Old aggressive Metro heuristics can cause black flashes. Keep them
+ // opt-in AND mutually exclusive with the default safe renderer policy.
+ // Never let a previously saved legacy setting undermine no-flash mode.
+ try{return localStorage.getItem('xbridge:video-auto-repair')==='true' &&
+   localStorage.getItem('xbridge:vidaa-renderer-repair')==='false'}catch{return false}
 }
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
@@ -385,10 +389,23 @@ async function rescueFrozenVideo(){
   notifyParent({type:'xbridge-rescue-stage',step:'unavailable'});
   return;
  }
+ if(choice.action==='keyframe' &&
+    (player?._channels?.control as any)?._dataChannel?.readyState!=='open'){
+  status('Canal de controle Xbox indisponível para quadro-chave. Use Nova superfície nas configurações da TV.');
+  notifyParent({type:'xbridge-rescue-stage',step:'keyframe-unavailable'});
+  return;
+ }
  if(!manualVideoRescue.start(choice.action,now))return;
  notifyParent({type:'xbridge-rescue-stage',step:'start',stage:choice.action});
  try{
-  if(choice.action==='surface'){
+  if(choice.action==='keyframe'){
+   // The least intrusive rescue uses the existing Xbox control channel:
+   // NO pause(), DOM swap, srcObject reset or reconnection.
+   (player?._channels?.control as any)?.requestKeyframeRequest(true);
+   traceVideo('attempt',{stage:'keyframe',kind:'user-confirmed-visible-freeze',manual:true});
+   status('Novo quadro-chave solicitado ao Xbox, sem piscar a tela. Se permanecer travado, aguarde três segundos e use Resgatar imagem novamente.');
+   notifyParent({type:'xbridge-rescue-stage',step:'keyframe-requested',stage:'keyframe'});
+  }else if(choice.action==='surface'){
    status('Recriando a superfície de vídeo VIDAA, preservando a partida Xbox…');
    const rebuilt=await rebuildNativeVideoSurfaceWithEvidence();
    status(rebuilt?
