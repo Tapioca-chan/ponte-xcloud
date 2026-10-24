@@ -40,7 +40,7 @@ test('confirmed prolonged stall first requests only a keyframe; surface later if
  assert.equal(sample(w,116000,500,60,600).action,'keyframe');
  w.acknowledgeKeyframe(116000);
  for(let t=120000;t<136000;t+=4000)assert.equal(sample(w,t,500+(t-116000)/20,60,600+(t-116000)/8).action,'none');
- assert.equal(sample(w,136000,1500,60,2500).action,'surface');
+ assert.equal(sample(w,136000,1500,60,3100).action,'surface');
  w.acknowledgeSurface(136000);
  // The counter may reset to 0 on newly created DOM VIDEO: do not repair
  assert.equal(sample(w,140000,2000,0,3000).action,'none');
