@@ -1573,7 +1573,7 @@ if (embedded) {
  }
 
  window.addEventListener('message',event=>{
-  if(!acceptsParent(event,window.parent))return;
+  if(!acceptsParent(event,window.parent,location.origin))return;
   if(event.data?.type==='xbridge-input'){
    frame=compactFrame(event.data.packet);lastFrame=Date.now();
    if(started)trackMeaningfulGamepadInput(frame);
