@@ -11,6 +11,7 @@ import {MediaTransitionWatch} from './video-transition-health.mjs';
 import {inspectVideoPipeline} from './video-pipeline-diagnostics.mjs';
 import {RecurrentWebRtcFreezeWatch} from './recurrent-webrtc-freezes.mjs';
 import {PresentationStallWatch} from './presentation-stall-watch.mjs';
+import {VideaAutoRecovery} from './vidaa-auto-recovery.mjs';
 import {shouldRecoverMetroIntro,describeRecoveryBlockers} from './metro-intro-stall.mjs';
 import {selectVideoRecoveryMode,canRequestSurfaceRefresh} from './video-recovery-stages.mjs';
 import {shouldStartMetroOpaqueRepair,shouldEscalateMetroOpaqueRepair,shouldPreferNativeMetroSurface,shouldProbeMetroOpaqueSurfaceWithoutFreezeCount,shouldProtectRecoveredMetroSurface,chooseMetroHybridSurfaceRecovery} from './metro-native-plane-autorepair.mjs';
@@ -78,6 +79,8 @@ let activeFreezeMarker:{serial:number;baseline:any}|null=null;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
 const presentationWatch=new PresentationStallWatch();
+const adaptiveVideaWatch=new VideaAutoRecovery();
+let lastAutoBlockedNoticeAt=0;
 let earlyFreezeWatch=new EarlyFreezeRiseWatch();
 let metroStartupKeyframes=new MetroStartupKeyframePreflight();
 let watchedVideo:HTMLVideoElement|null=null,watchedVideoListener:((event:Event)=>void)|null=null;
@@ -132,7 +135,8 @@ function stopVideoHealth(){
  autoNativeSurfaceAttempts=0;autoNativeSurfaceRecovered=false;
  freezeMarkerSerial++;activeFreezeMarker=null;
  trackVideoTransitions(undefined);mediaTransitions=new MediaTransitionWatch();
- webRtcFreezeWatch.reset();presentationWatch.reset();earlyFreezeWatch.reset();
+ webRtcFreezeWatch.reset();presentationWatch.reset();adaptiveVideaWatch.reset();earlyFreezeWatch.reset();
+ lastAutoBlockedNoticeAt=0;
  metroStartupKeyframes.reset();
 }
 // Coarse operational media state only; no video pixels, raw gamepad packets,
@@ -597,6 +601,7 @@ function startVideoHealth(){
     totalFreezesDuration:Number.isFinite(inbound.totalFreezesDuration)?Number(inbound.totalFreezesDuration):null,
     keyFramesDecoded:Number.isFinite(inbound.keyFramesDecoded)?Number(inbound.keyFramesDecoded):null,
     presented,
+    mediaCurrentTime:Number.isFinite(media?.currentTime)?Number(media?.currentTime):null,
     videoQualityFrames:qualityFrames,
     videoDroppedFrames:droppedFrames,
     videoPaused:Boolean(media?.paused),
@@ -704,6 +709,71 @@ function startVideoHealth(){
    const rendererEligible=rendererRescueEnabled && !videoRecoveryInFlight &&
      !reconnectingMedia && !activeFreezeMarker && !gameOverlayOpen &&
      Boolean(media?.srcObject) && player===monitoredPlayer;
+   // In opaque VIDAA native video mode we cannot prove what's on the physical
+   // screen. Two independent RTC freeze counter rises can nevertheless
+   // justify a ZERO-FLASH keyframe request. A disruptive video surface swap
+   // demands that BOTH the element's media clock and video-quality counter
+   // progressed earlier in this SAME session, then stalled despite RTP
+   // continuing, and the Xbox has already received a fresh keyframe.
+   const adaptiveEvidence=adaptiveVideaWatch.observe({
+    now,decoded:sample.decoded,received:sample.received,
+    freezeCount:sample.freezeCount,qualityFrames:qualityFrames,
+    videoTime:sample.mediaCurrentTime,ready:sample.videoReadyState>=2,
+    paused:sample.videoPaused,overlay:gameOverlayOpen,
+    connected:effectiveState==='connected'||effectiveState==='completed',
+    videoAttached:Boolean(media?.srcObject),
+    recentUserInput:now-lastMeaningfulGamepadAt<25000
+   });
+   if(rendererEligible && adaptiveEvidence.action==='keyframe'){
+    const channel=monitoredPlayer._channels?.control as any;
+    if(channel?._dataChannel?.readyState==='open'){
+     adaptiveVideaWatch.acknowledgeKeyframe(now,adaptiveEvidence.reason);
+     try{
+      channel.requestKeyframeRequest(true);
+      traceVideo('attempt',{stage:'keyframe',kind:'adaptive-vidaa',
+       reason:adaptiveEvidence.reason,decoded:sample.decoded,
+       freezeCount:sample.freezeCount,manual:false});
+      notifyParent({type:'xbridge-video-recovery',step:'keyframe',
+       kind:'adaptive-vidaa',stage:'keyframe'});
+      status('VIDAA: novo quadro-chave solicitado automaticamente, sem apagar ou reconectar a imagem.');
+     }catch(_){}
+    }
+    return;
+   }
+   if(rendererEligible && adaptiveEvidence.action==='surface'){
+    if(!aggressiveSurfaceAllowed){
+     // In safe mode do not create black flashes even when the element's
+     // reliable clocks stall. Only the user may invoke a strong swap.
+     if(now-lastAutoBlockedNoticeAt>60000){
+      lastAutoBlockedNoticeAt=now;
+      traceVideo('preflight',{kind:'adaptive-surface-available',stage:'surface',
+       reason:adaptiveEvidence.reason,autoSurfaceOptIn:false});
+     }
+     return;
+    }
+    adaptiveVideaWatch.acknowledgeSurface(now);
+    // Keep the existing surface routine as the single owner of recovery.
+    // This path is capped to ONE per Xbox session, never a 60-second loop.
+    videoRecoveryInFlight=true;
+    notifyParent({type:'xbridge-video-recovery-start',reason:'automatic',
+     kind:'adaptive-vidaa',stage:'surface'});
+    traceVideo('attempt',{kind:'adaptive-vidaa',stage:'surface',
+     decoded:sample.decoded,quality:qualityFrames,manual:false});
+    try{
+     const rebuilt=await monitoredPlayer.rebuildNativeVideoSurface?.()===true;
+     if(player===monitoredPlayer){
+      traceVideo('result',{kind:'adaptive-vidaa',stage:'surface',
+       result:rebuilt?'play-accepted':'exception',manual:false});
+      notifyParent({type:'xbridge-video-recovery',
+       step:rebuilt?'surface':'failed',kind:'adaptive-vidaa',stage:'surface'});
+      if(rebuilt){healthPrevious=null;visualWatchdog?.reset();}
+     }
+    }catch(_){
+     traceVideo('result',{kind:'adaptive-vidaa',stage:'surface',
+      result:'exception',manual:false});
+    }finally{videoRecoveryInFlight=false;}
+    return;
+   }
    if(rendererEligible && presentationEvidence.action==='keyframe'){
     // Non-disruptive stage: ask Xbox for an intra frame. No pause(), no
     // srcObject=null, no DOM replacement, no WebRTC renegotiation.
@@ -914,6 +984,8 @@ function startVideoHealth(){
      ageSec:nativePlaneFirstVideoAt?Math.round((now-nativePlaneFirstVideoAt)/1000):0,
      freezeCount:sample.freezeCount,earlyFreezeRises,
      decoded:sample.decoded,presented:sample.presented,
+     mediaTimeSec:sample.mediaCurrentTime,qualityFrames:qualityFrames,
+     adaptiveLastKeyframeAt:adaptiveVideaWatch.lastKeyframeAt,
      fps:decodeHealth.fps,decodeMs:decodeHealth.decodeMs,
      packetLossPct:decodeHealth.lossPercent,jitterMs:decodeHealth.jitterMs,
      frameWidth:decodeHealth.width,frameHeight:decodeHealth.height,
