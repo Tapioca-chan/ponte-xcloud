@@ -5,11 +5,10 @@ export function needsXboxDialogCompatibility(title) {
 }
 
 
-// Prepare the native VIDAA video plane at its final TV geometry *before*
-// attaching the Xbox MediaStream. This stabilizes the transition from xCloud
-// preroll to Fortnite/Metro gameplay without touching codec, bitrate, quality,
-// controller or Xbox dialogue compatibility. Other games remain unchanged.
+// Native VIDAA video geometry is a TV-wide responsibility, NOT something
+// limited to Metro/Fortnite. The system-dialog compatibility below remains
+// Metro-only. The render component applies this only when mounted in the
+// verified same-origin TV parent's dedicated video host.
 export function shouldPreallocateVideaSurface(title) {
- return typeof title==='string' &&
-   (needsXboxDialogCompatibility(title)||/\bfortnite\b/i.test(title));
+ return typeof title==='string' && title.trim().length>0;
 }
