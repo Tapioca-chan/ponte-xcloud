@@ -53,12 +53,13 @@ test('Metro performs one early boot repair even while user holds the controller'
  assert.equal(shouldNudgeMetroBoot({...base,title:'Metro 2033 Redux'}),false);
 });
 
-test('Fortnite native VIDAA preallocation is independent of Metro Xbox system dialogs',()=>{
+test('all Xbox games preallocate the VIDAA native plane, but dialogue hacks remain Metro-only',()=>{
  assert.equal(shouldPreallocateVideaSurface('Fortnite'),true);
  assert.equal(shouldPreallocateVideaSurface('FORTNITE'),true);
  assert.equal(shouldPreallocateVideaSurface('Metro Exodus'),true);
- assert.equal(shouldPreallocateVideaSurface('Marvel Rivals'),false);
- assert.equal(shouldPreallocateVideaSurface('Metro 2033 Redux'),false);
- assert.equal(shouldPreallocateVideaSurface('Other game'),false);
+ assert.equal(shouldPreallocateVideaSurface('Marvel Rivals'),true);
+ assert.equal(shouldPreallocateVideaSurface('Metro 2033 Redux'),true);
+ assert.equal(shouldPreallocateVideaSurface('Other game'),true);
+ assert.equal(shouldPreallocateVideaSurface(''),false);
  assert.equal(needsXboxDialogCompatibility('Fortnite'),false);
 });
