@@ -188,7 +188,8 @@ async function markVisibleFreeze(){
  if(serial!==freezeMarkerSerial)return;
  if(!snapshot){
   reportFreezeSample('freeze-marker','user',null);
-  status('Marcador recebido, mas o WebRTC ainda não disponibilizou estatísticas do vídeo.');
+  notifyParent({type:'xbridge-freeze-marked',step:'unavailable',verdict:'unavailable'});
+  status('Marcação recebida, mas getStats() não respondeu em 1,5 s. Sem medições confiáveis, não atribuirei uma causa ao travamento.');
   return;
  }
  activeFreezeMarker={serial,baseline:snapshot};
