@@ -666,11 +666,10 @@ function startVideoHealth(){
    const effectiveState=(connectedState==='failed'||connectedState==='closed'||connectedState==='disconnected')
      ?connectedState:(sample.videoReadyState>=2 &&
        (sample.decoded>0||sample.audioReceived>0)?'connected':connectedState);
-   // New conservative recovery path for ALL games: only intervene when
-   // the browser exposes actual rendered-frame progress and that counter
-   // STOPS over two consecutive samples while RTP and decoded frames advance.
-   // Ordinary freezeCount bursts, a static Xbox menu, or absent VIDAA
-   // compositor counters never trigger a native surface reset.
+   // A zero-only rendered counter is NOT evidence of a stuck picture on the
+   // Toshiba: the TV reported rendered=0 while playing real moving gameplay.
+   // Our previous auto-rebuild mistook it for a freeze and detached the video
+   // about once per minute, causing the observed black flashes.
    const presentationEvidence=presentationWatch.observe({
     now,decoded:sample.decoded,rendered:sample.presented,received:sample.received,
     ready:sample.videoReadyState>=2,paused:sample.videoPaused,
@@ -678,38 +677,70 @@ function startVideoHealth(){
     active:started&&(effectiveState==='connected'||effectiveState==='completed')
    });
    let rendererRescueEnabled=true;
-   try{rendererRescueEnabled=localStorage.getItem('xbridge:vidaa-renderer-repair')!=='false'}catch(_){}
-   if(presentationEvidence.confirmed && rendererRescueEnabled &&
-      !videoRecoveryInFlight && !reconnectingMedia && !activeFreezeMarker &&
-      !gameOverlayOpen && Boolean(media?.srcObject) && player===monitoredPlayer){
-    // Cooldown starts BEFORE the asynchronous rebuild to avoid any duplicate
-    // run while VIDAA's play() promise is pending or returning late.
-    presentationWatch.acknowledge(now);
-    videoRecoveryInFlight=true;
-    traceVideo('attempt',{stage:'surface',kind:'decoded-not-rendered',
-      decoded:sample.decoded,presented:sample.presented,manual:false});
-    notifyParent({type:'xbridge-video-recovery-start',reason:'automatic',
-      kind:'decoded-not-rendered',stage:'surface'});
-    try{
-      const ok=await monitoredPlayer.rebuildNativeVideoSurface?.()===true;
-      if(player===monitoredPlayer){
-       traceVideo('result',{stage:'surface',kind:'decoded-not-rendered',
-         result:ok?'play-accepted':'exception',manual:false});
-       notifyParent({type:'xbridge-video-recovery',
-         step:ok?'surface':'failed',kind:'decoded-not-rendered',stage:'surface'});
-       status(ok?'VIDAA: superfície de vídeo recriada após falha confirmada de apresentação. Partida Xbox mantida.':
-         'VIDAA: recuperação da superfície não foi aceita. Use Resgatar imagem manualmente.');
-       if(ok){healthPrevious=null;visualWatchdog?.reset();}
-      }
-    }catch(_){
-      traceVideo('result',{stage:'surface',kind:'decoded-not-rendered',
-        result:'exception',manual:false});
-    }finally{videoRecoveryInFlight=false;}
-    // A confirmed renderer stall already consumed this sample. Do NOT
-    // schedule any other Metro/legacy repair in the same stats callback:
-    // double srcObject resets caused black flashes on the VIDAA.
+   let aggressiveSurfaceAllowed=false;
+   try{
+    rendererRescueEnabled=localStorage.getItem('xbridge:vidaa-renderer-repair')!=='false';
+    // Potential black flash: this escalation is OFF by default, never
+    // inferred from old experimental Metro toggles.
+    aggressiveSurfaceAllowed=localStorage.getItem('xbridge:vidaa-allow-auto-surface-rebuild')==='true';
+   }catch(_){}
+   const rendererEligible=rendererRescueEnabled && !videoRecoveryInFlight &&
+     !reconnectingMedia && !activeFreezeMarker && !gameOverlayOpen &&
+     Boolean(media?.srcObject) && player===monitoredPlayer;
+   if(rendererEligible && presentationEvidence.action==='keyframe'){
+    // Non-disruptive stage: ask Xbox for an intra frame. No pause(), no
+    // srcObject=null, no DOM replacement, no WebRTC renegotiation.
+    const channel=monitoredPlayer._channels?.control as any;
+    if(channel?._dataChannel?.readyState==='open'){
+     presentationWatch.acknowledgeKeyframe(now);
+     try{
+      channel.requestKeyframeRequest(true);
+      traceVideo('attempt',{stage:'keyframe',kind:'verified-render-stall',
+       decoded:sample.decoded,presented:sample.presented,manual:false});
+      notifyParent({type:'xbridge-video-recovery',
+       step:'keyframe',kind:'verified-render-stall',stage:'keyframe'});
+      status('VIDAA: novo quadro-chave solicitado sem interromper o vídeo ou a partida Xbox.');
+     }catch(_){}
+    }
+    // Avoid a second, disruptive legacy repair on this very same RTC poll.
     return;
    }
+   if(rendererEligible && presentationEvidence.action==='surface'){
+    if(!aggressiveSurfaceAllowed){
+     // Report once at most per minute without inventing a visible recovery.
+     if(now-lastVideoTelemetryAt>60000){
+      traceVideo('preflight',{stage:'surface',kind:'auto-rebuild-disabled',
+       decoded:sample.decoded,presented:sample.presented});
+     }
+     return;
+    }
+    // Explicit experimental opt-in + verified previous frame presentation
+    // + prolonged stall despite an earlier keyframe. Still keep rollback,
+    // cooldown, no Xbox account/session restart.
+    presentationWatch.acknowledgeSurface(now);
+    videoRecoveryInFlight=true;
+    traceVideo('attempt',{stage:'surface',kind:'persistent-render-stall',
+      decoded:sample.decoded,presented:sample.presented,manual:false});
+    notifyParent({type:'xbridge-video-recovery-start',reason:'automatic',
+      kind:'persistent-render-stall',stage:'surface'});
+    try{
+     const ok=await monitoredPlayer.rebuildNativeVideoSurface?.()===true;
+     if(player===monitoredPlayer){
+      traceVideo('result',{stage:'surface',kind:'persistent-render-stall',
+       result:ok?'play-accepted':'exception',manual:false});
+      notifyParent({type:'xbridge-video-recovery',
+       step:ok?'surface':'failed',kind:'persistent-render-stall',stage:'surface'});
+      if(ok){healthPrevious=null;visualWatchdog?.reset();}
+     }
+    }catch(_){
+     traceVideo('result',{stage:'surface',kind:'persistent-render-stall',
+      result:'exception',manual:false});
+    }finally{videoRecoveryInFlight=false;}
+    return;
+   }
+   // When the browser has never exposed a progressing renderer counter,
+   // no automatic video-plane replacement is justified. The manual
+   // user-confirmed rescue remains available on an opaque physical TV.
    // Before Metro reaches gameplay, request fresh decoder reference frames
    // when early WebRTC freezes occur. This is proactive but non-destructive:
    // unlike Recover Image it never detaches srcObject or flashes the ad.
