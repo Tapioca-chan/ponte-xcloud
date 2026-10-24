@@ -413,9 +413,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         ?'Jogado recentemente':'Xbox Cloud Gaming';
       button.appendChild(art);button.appendChild(label);button.appendChild(meta);
       button.onclick=()=>{
-        if(recentGames.some(x=>x.titleId===game.titleId))
-          launchXboxRecentDirectly(game);
-        else openGameHub(game.titleId);
+        launchXboxRecentDirectly(game);
       };
       row.appendChild(button);
     }
@@ -448,8 +446,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const tag=document.createElement('small');tag.className='xb-card-sub';
       tag.textContent=game.accessible===true?'● Acesso confirmado na nuvem':game.accessible===false?'Sem acesso confirmado':game.genre||'Acesso não verificado';
       button.appendChild(art);button.appendChild(label);button.appendChild(tag);
-      button.onclick=()=>activeFilter==='recent'?
-        launchXboxRecentDirectly(game):openGameHub(game.titleId);
+      button.onclick=()=>launchXboxRecentDirectly(game);
       fragment.appendChild(button);
     }
     grid.appendChild(fragment);
@@ -529,10 +526,27 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
     $('xb-auth-badge').textContent='Xbox conectada';
     authInfo('Conta conectada.');
     status('Conta Xbox conectada. Carregando jogos reais…');
+    // When the parent opens a recently-played title, consult the authentic
+    // Xbox recent list FIRST. Avoid loading/rendering an extra catalog page
+    // and then opening a game profile before the stream begins.
+    if(autoLaunchRequested && requestedGame){
+      await loadRecent();
+      const key=value=>String(value||'').toLowerCase().normalize('NFD')
+        .replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+      const recent=recentGames.find(g=>key(g.name)===key(requestedGame));
+      if(recent){
+        currentGames=[recent];
+        selectionResolved=true;
+        autoLaunchDone=true;
+        void refreshFavoriteGames();
+        launchXboxRecentDirectly(recent);
+        return;
+      }
+    }
     await loadCatalog(true);
     void refreshFavoriteGames();
     // The MRU list is personalized account activity, not purchased ownership.
-    void loadRecent();
+    if(!recentGames.length)void loadRecent();
   }
   async function pollAuth(){
     if(!canAsk||authorized||authPolling)return;
