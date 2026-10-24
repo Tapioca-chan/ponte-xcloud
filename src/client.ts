@@ -705,6 +705,10 @@ function startVideoHealth(){
       traceVideo('result',{stage:'surface',kind:'decoded-not-rendered',
         result:'exception',manual:false});
     }finally{videoRecoveryInFlight=false;}
+    // A confirmed renderer stall already consumed this sample. Do NOT
+    // schedule any other Metro/legacy repair in the same stats callback:
+    // double srcObject resets caused black flashes on the VIDAA.
+    return;
    }
    // Before Metro reaches gameplay, request fresh decoder reference frames
    // when early WebRTC freezes occur. This is proactive but non-destructive:
