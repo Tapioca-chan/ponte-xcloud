@@ -665,7 +665,7 @@ function startVideoHealth(){
       introFreeze?'webrtc-metro-intro':'webrtc-recurrent-freezes',
     recentFreezeEvents:freezeEvidence.recentEvents,
     visualStillMs:0,signalStatus:result.kind});
-   if(!isMetro && canAutoRecoverStream({
+   if(!isMetro && canAutoInterruptVideo() && canAutoRecoverStream({
     now,attempts:metroRecoveryAttempts,lastAttemptAt:metroLastRecoveryAt,
     visualFrozen,signalFrozen,hasVideo:Boolean(media?.srcObject),
     connection:effectiveState
@@ -700,7 +700,7 @@ function startVideoHealth(){
     if(!recovered)notifyParent({type:'xbridge-freeze-diagnostics',
      visualStatus:'recovery-failed',signalStatus:kind});
    }
-   if(!isMetro && mediaTransitions.shouldRecoverWait({
+   if(!isMetro && canAutoInterruptVideo() && mediaTransitions.shouldRecoverWait({
     now,readyState:sample.videoReadyState,paused:sample.videoPaused,
     hasVideo:Boolean(media?.srcObject),
     connected:effectiveState==='connected'||effectiveState==='completed',
@@ -793,7 +793,7 @@ function startVideoHealth(){
     webRtcFreezeWatch.acknowledgeRecovery();
     visualWatchdog?.reset();
    }
-   if(!isMetro && !protectRecoveredMetroSurface() && (doSoft || doStrong)){
+   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && (doSoft || doStrong)){
     // No Game Pass advertisement skipping, no Xbox session restart, no
     // controller presses. Reconnect the DOM media element only once maximum.
     const stage=doStrong?'strong':'soft';
@@ -836,7 +836,7 @@ function startVideoHealth(){
     lastManualRecoveryAt,enabled:opaqueRepairEnabled,
     recentMeaningfulInput:now-lastMeaningfulGamepadAt<30000
    });
-   if(!isMetro && !protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
+   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     queuedMetroIntroRecovery=false;
@@ -855,7 +855,7 @@ function startVideoHealth(){
    // black flash and might be mistaken for the original game freeze.
    let nativeRefreshEnabled=false;
    try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
-   if(!isMetro && !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
+   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
     now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
     lastAttemptAt:metroLastRecoveryAt,lastManualAt:lastManualRecoveryAt,
