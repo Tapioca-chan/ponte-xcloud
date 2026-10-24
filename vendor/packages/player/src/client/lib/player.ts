@@ -125,6 +125,13 @@ export default class xCloudPlayer {
         return this._videoComponent.rebuildNativeSurface()
     }
 
+    // Alternative to rebuilding the SAME native surface after a confirmed
+    // physical VIDAA freeze. User initiated only; preserves Xbox MediaStream.
+    async migrateNativeVideoHost():Promise<'parent'|'iframe'|null>{
+        if(this._isDestoyed || !(this._videoComponent instanceof VideoComponent))return null
+        return this._videoComponent.migrateNativeVideoHost()
+    }
+
     toggleDebugOverlay() {
         if(this._videoComponent){
             this._videoComponent.toggleDebugOverlay()
