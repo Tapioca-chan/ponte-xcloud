@@ -22,6 +22,9 @@ import {ManualVideoRescue} from './manual-video-rescue.mjs';
 const playerParams=new URLSearchParams(location.search);
 const embedded = playerParams.get('embed') === 'xbridge' && window.parent !== window;
 const embeddedVideoHostMode=embedded && playerParams.get('videoHost')==='iframe'?'iframe':'parent';
+// The CSS video plane still uses the full TV viewport. Only the Xbox
+// server-requested H.264 stream size changes, and only at game creation.
+const xboxVideoResolution:720|1080=embedded && playerParams.get('videoResolution')!=='1080'?720:1080;
 if(embeddedVideoHostMode==='iframe' && embedded)document.body.classList.add('xb-video-inframe');
 // The TV embeds this player via its SAME-ORIGIN /player reverse proxy.
 // Hard-coding the previous xcloud-tv host silently discards 'xbridge-ready'
@@ -1024,7 +1027,11 @@ $('play').onclick=async()=>{
   if(typeof RTCPeerConnection==='undefined')throw Error('Este navegador não oferece WebRTC.');
   if(!$('games').value)throw Error('Selecione um jogo da biblioteca antes de jogar.');
   phase='start';announce('Solicitando o jogo aos servidores Xbox…');
-  await api('start',{id:$('games').value});
+  await api('start',{id:$('games').value,resolution:xboxVideoResolution});
+  traceVideo('stream-profile',{width:xboxVideoResolution===720?1280:1920,height:xboxVideoResolution===720?720:1080});
+  announce(xboxVideoResolution===720
+   ? 'Xbox conectado no perfil de estabilidade 720p; vídeo ampliado para a TV.'
+   : 'Xbox conectado no perfil de qualidade 1080p.');
   // Permit recovery menu while Xbox audio works but Metro has no video yet.
   notifyParent({type:'xbridge-game-session',active:true});
   phase='state';announce('Aguardando o Xbox preparar o jogo…');
