@@ -774,7 +774,9 @@ function startVideoHealth(){
     overlayOpen:gameOverlayOpen,
     recoveryBusy:videoRecoveryInFlight||Boolean(activeFreezeMarker),
     recentMeaningfulInput:now-lastMeaningfulGamepadAt<12000,
-    enabled:opaqueRepairEnabled
+    // Respect the user's explicit stable-video setting: repairing opaque
+    // planes can itself produce the black flashes being investigated.
+    enabled:opaqueRepairEnabled && canAutoInterruptVideo()
    });
    if(hybridMetroRecovery.repair){
     metroRecoveryAttempts++;
