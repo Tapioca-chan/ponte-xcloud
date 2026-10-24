@@ -103,29 +103,30 @@ export default class VideoComponent {
             // not just the React iframe (which was already full-screen).
             const force = (el:HTMLElement, key:string, value:string) =>
                 el.style.setProperty(key,value,'important')
-            // The parent host lives inside the xBridge full-screen section;
-            // when a decoded frame arrives, the parent expands the section.
-            // Do not detach the host from that section or its overlay controls.
-            force(element,'position',topLevel?'absolute':'fixed')
-            force(element,'inset','0')
-            force(element,'width',topLevel?'100%':'100vw')
-            force(element,'height',topLevel?'100%':'100vh')
-            force(element,'overflow','hidden')
-            force(element,'background','#000')
-            force(videoElement,'display','block')
-            force(videoElement,'position','absolute')
-            force(videoElement,'inset','0')
-            // Do not overwrite a preallocated native-plane geometry on
-            // the first decoded frame. The TV parent owns sizing throughout
-            // ad -> game transitions and may be 1920x1080 in a 1280x720 DOM.
-            if(!nativePlanePreflight) {
+            // All TV titles preallocate the native surface at its final
+            // geometry BEFORE srcObject. An old VIDAA can freeze its hardware
+            // overlay if CSS/layout is changed during the very first frame.
+            // Do not write position, size, transform or overflow on either
+            // native parent host or video on loadeddata/playing: a successful
+            // play() does not prove the physical overlay is drawing.
+            // Standalone non-embedded player retains its legacy layout.
+            if(!nativePlanePreflight){
+                force(element,'position',topLevel?'absolute':'fixed')
+                force(element,'inset','0')
+                force(element,'width',topLevel?'100%':'100vw')
+                force(element,'height',topLevel?'100%':'100vh')
+                force(element,'overflow','hidden')
+                force(element,'background','#000')
+                force(videoElement,'display','block')
+                force(videoElement,'position','absolute')
+                force(videoElement,'inset','0')
                 force(videoElement,'width','100%')
                 force(videoElement,'height','100%')
                 force(videoElement,'object-position','center center')
+                force(videoElement,'max-height','none')
+                force(videoElement,'max-width','none')
+                force(videoElement,'object-fit','contain')
             }
-            force(videoElement,'max-height','none')
-            force(videoElement,'max-width','none')
-            force(videoElement,'object-fit','contain')
             document.body.classList.add('stream-playing')
             try {
                 if (window.parent !== window && location.origin === window.parent.location.origin) {
