@@ -356,7 +356,14 @@ if(action==='recent'){
     if(action==='start'){
      if(typeof body.id!=='string'||body.id.length>160)throw Error('Jogo inválido');
      if(room.session)throw Error('Encerre a sala antes de iniciar outra sessão');
-     room.config={id:body.id,type:'cloud',language:'pt-BR',host:room.host,resolution:1080};
+     // Native VIDAA decoders can struggle with 1080p H.264 despite a healthy
+     // WebRTC transport. The client requests 720p as a controlled stability
+     // profile; standalone/web players retain their historical 1080p default.
+     // This is an Xbox session capability, not CSS scaling. It can only
+     // change before creating a NEW game session.
+     const requestedResolution=body.resolution===720?720:1080;
+     room.config={id:body.id,type:'cloud',language:'pt-BR',host:room.host,resolution:requestedResolution};
+     console.info('[xbridge-stream-profile]',requestedResolution===720?'vidaa-720p':'standard-1080p');
      const session:any=await stream.startStream(room.token,room.config);if(!session.sessionPath)throw Error('Sessão não criada');room.session=session;reply(res,200,{sessionId:session.sessionId,sessionPath:session.sessionPath});return;
     }
     if(!room.session)throw Error('Inicie um jogo');
