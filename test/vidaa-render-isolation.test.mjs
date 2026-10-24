@@ -17,7 +17,7 @@ test('iframe native mode never hoists MediaStream into parent document',()=>{
  assert.match(video,/const nativePlanePreflight = \(topLevel\|\|iframeNativeMode\)/);
  assert.match(video,/const physical=topLevel&&scaleMode/);
  assert.match(client,/__xbridgeVideoHostMode=embeddedVideoHostMode/);
- assert.match(client,/playerParams\.get\('videoHost'\)==='iframe'/);
+ assert.match(client,/hostParam==='iframe'\?'iframe'/);
 });
 test('same-document native player video is viewport sized before the stream is attached',()=>{
  assert.match(css,/body\.xbridge-embedded\.xb-video-inframe #playerContainer/);
