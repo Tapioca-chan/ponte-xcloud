@@ -77,7 +77,7 @@ export class VideaAutoRecovery {
   // DISTINCT samples. The threshold is a debounce, not a fixed retry timer.
   if(this.lastKeyframeAt===0||now-this.lastKeyframeAt>=90000){
     if(this.stallSamples>=3 && recentUserInput ||
-       this.freezeEvents.length>=2 && recentUserInput){
+       this.freezeEvents.length>=2){
       return {action:'keyframe',reason:this.stallSamples>=3?'media-clock-stall':'recurrent-rtc-freezes',
         ...details};
     }
