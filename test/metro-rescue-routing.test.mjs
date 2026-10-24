@@ -21,3 +21,9 @@ test('rescue restarts native surface first, transport only after explicit second
  assert.match(client,/await reconnectXboxMediaWithoutRestart\(\)/);
  assert.match(client,/choice\.action==='busy'\|\|videoRecoveryInFlight\|\|reconnectingMedia/);
 });
+
+test('temporary WebRTC ICE disconnect preserves native VIDAA video surface',()=>{
+ assert.match(client,/notifyParent\(\{type:'xbridge-rtc-state',state\}\)/);
+ assert.doesNotMatch(client,/if\(state==='failed'\|\|state==='disconnected'\|\|state==='closed'\)\s*\{\s*document\.body\.classList\.remove\('stream-playing'\)/);
+ assert.match(client,/if\(state==='connected' && started\)/);
+});
