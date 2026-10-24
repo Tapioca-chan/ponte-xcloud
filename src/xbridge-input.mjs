@@ -8,6 +8,14 @@ export function compactFrame(packet) {
  axes.forEach((key,i)=>{frame[key]=Number(packet.a[i])/127;});
  return sanitize(frame);
 }
-export function acceptsParent(event,parentWindow) {
- return event.origin==='https://xcloud-tv.onrender.com' && event.source===parentWindow;
+// The embedded Xbox player is reverse-proxied under the TV site's /player/
+// path, so TV host and player MUST share the exact origin. The old fixed
+// xcloud-tv.onrender.com origin caused every new-domain parent postMessage
+// (manual recovery, host migration, controller bridge) to be silently dropped.
+// Never accept wildcard '*' or messages from an unrelated frame.
+export function acceptsParent(event,parentWindow,playerOrigin) {
+ return typeof playerOrigin==='string' &&
+   playerOrigin.startsWith('https://') &&
+   event.origin===playerOrigin &&
+   event.source===parentWindow;
 }
