@@ -22,7 +22,7 @@ test('dedicated VIDAA video host is full-bleed before binding the MediaStream',(
  assert.match(video,/topLevel&&scaleMode==='physical'/);
  assert.match(video,/topLevel&&scaleMode==='transform'/);
  assert.match(video,/host\?\.style\.setProperty\('overflow',scaleMode==='css'\?'hidden':'visible','important'\)/);
- assert.match(video,/rendererVersion:'vidaa-scale-v2'/);
+ assert.match(video,/rendererVersion:legacyParentGeometry\\?'oct22-parent-v3':'vidaa-scale-v2'/);
 });
 test('native pipeline does not use experimental GPU canvas or modify Xbox controls',()=>{
  assert.match(video,/const videoElement = renderDocument\.createElement\('video'\)/);
