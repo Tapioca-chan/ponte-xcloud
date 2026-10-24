@@ -169,11 +169,12 @@ export default class VideoComponent {
             // native parent host or video on loadeddata/playing: a successful
             // play() does not prove the physical overlay is drawing.
             // Standalone non-embedded player retains its legacy layout.
-            if(!nativePlanePreflight){
-                force(element,'position',topLevel?'absolute':'fixed')
+            if(!nativePlanePreflight && !topLevel){
+                // The iframe/standalone path owns its own fixed viewport.
+                force(element,'position','fixed')
                 force(element,'inset','0')
-                force(element,'width',topLevel?'100%':'100vw')
-                force(element,'height',topLevel?'100%':'100vh')
+                force(element,'width','100vw')
+                force(element,'height','100vh')
                 force(element,'overflow','hidden')
                 force(element,'background','#000')
                 force(videoElement,'display','block')
@@ -186,6 +187,11 @@ export default class VideoComponent {
                 force(videoElement,'max-width','none')
                 force(videoElement,'object-fit','contain')
             }
+            // Parent-hosted video owns a FIXED 100vw/100vh container in
+            // the TV document. The former topLevel ? 'absolute' rewrite
+            // undid that at the first frame, and overflow:hidden clipped
+            // its subsequent physical 1920x1080 compensation. Do not
+            // reparent or shrink the parent host as the preroll starts.
             document.body.classList.add('stream-playing')
             try {
                 if (window.parent !== window && location.origin === window.parent.location.origin) {
@@ -195,17 +201,43 @@ export default class VideoComponent {
         }
         videoElement.addEventListener('loadeddata', notifyVideoReady, {once:true})
         videoElement.addEventListener('playing', notifyVideoReady, {once:true})
+        // A second 'playing' event is a legitimate signal after decoder stalls,
+        // ad preroll or a media-plane transition. It does NOT prove a freeze;
+        // the TV decides whether a bounded geometry reassertion is warranted.
+        let firstPlayingSeen=false
+        videoElement.addEventListener('playing',()=>{
+            if(!firstPlayingSeen){firstPlayingSeen=true;return}
+            try{
+                if(topLevel && window.parent!==window &&
+                   window.parent.location.origin===location.origin){
+                    window.parent.postMessage({
+                        type:'xbridge-video-plane-transition',
+                        kind:'resumed',renderPath:'parent',
+                        sourceW:videoElement.videoWidth,
+                        sourceH:videoElement.videoHeight
+                    },location.origin)
+                }
+            }catch(_){}
+        })
+        let lastPositiveSourceSize=''
         videoElement.addEventListener('resize', () => {
-            // Tell the parent the decoded stream dimensions, without exposing
-            // private session information.
+            // The VIDAA hardware plane may silently shrink after an Xbox
+            // advert / game resolution transition. Signal ONLY a genuine
+            // transition between two known decoded sizes, never frame polls.
+            const width=videoElement.videoWidth
+            const height=videoElement.videoHeight
+            const key=width>0&&height>0?width+'x'+height:''
+            const changed=Boolean(lastPositiveSourceSize && key && key!==lastPositiveSourceSize)
+            if(key)lastPositiveSourceSize=key
             try {
                 if (window.parent !== window && window.parent.location.origin === location.origin) {
                     window.parent.postMessage({
                         type:'xbridge-video-size',
-                        width:videoElement.videoWidth,
-                        height:videoElement.videoHeight,
+                        width,height,
                         viewportWidth:window.innerWidth,
-                        viewportHeight:window.innerHeight
+                        viewportHeight:window.innerHeight,
+                        sourceSizeChanged:changed,
+                        renderPath
                     }, location.origin)
                 }
             } catch (_) {}
