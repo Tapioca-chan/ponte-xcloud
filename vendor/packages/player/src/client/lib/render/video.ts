@@ -66,7 +66,7 @@ export default class VideoComponent {
         // in the SAME document. Unlike parent-hoisted mode it does not pass
         // a MediaStream between VIDAA browser document/compositor contexts.
         const nativePlanePreflight = (topLevel||iframeNativeMode) &&
-            Boolean((this._player as any).__xbridgePreallocateVideaSurface)
+            (dedicatedNativeTvMode || Boolean((this._player as any).__xbridgePreallocateVideaSurface))
         if(!nativePlanePreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
