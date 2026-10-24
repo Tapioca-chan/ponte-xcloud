@@ -197,7 +197,9 @@ export default class VideoComponent {
             this._element.srcObject=stream
             try {
                 window.parent.postMessage({type:'xbridge-video-prepared',
-                    topLevel,prebound:true,pipeline:dedicatedNativeTvMode?'native-tv':renderPath},location.origin)
+                    topLevel,prebound:true,pipeline:dedicatedNativeTvMode?'native-tv':renderPath,
+                    scale:videoElement.getAttribute('data-xbridge-scale-mode')||'unknown',
+                    rendererVersion:'vidaa-scale-v2'},location.origin)
             } catch (_) {}
         }
         // CSS pixels and the native video decoder can use different viewports
@@ -233,7 +235,9 @@ export default class VideoComponent {
             try {
                 window.parent.postMessage({type:'xbridge-video-attached',
                     topLevel,renderPath:iframeNativeMode?'iframe':'parent',
-                    pipeline:dedicatedNativeTvMode&&topLevel?'native-tv':renderPath},location.origin)
+                    pipeline:dedicatedNativeTvMode&&topLevel?'native-tv':renderPath,
+                    scale:videoElement.getAttribute('data-xbridge-scale-mode')||'unknown',
+                    rendererVersion:'vidaa-scale-v2'},location.origin)
             } catch (_) {}
         }
         // VIDAA may block autoplay despite muted inline video; the user can
