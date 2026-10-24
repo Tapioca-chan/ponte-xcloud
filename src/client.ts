@@ -18,6 +18,7 @@ import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
 import {decoderSummary} from './decoder-health.mjs';
 import {compareFreezeEvidence} from './freeze-evidence.mjs';
+import {ManualVideoRescue} from './manual-video-rescue.mjs';
 const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
 // The TV embeds this player via its SAME-ORIGIN /player reverse proxy.
 // Hard-coding the previous xcloud-tv host silently discards 'xbridge-ready'
@@ -58,6 +59,7 @@ let queuedMetroIntroRecovery=false;
 let autoNativeSurfaceAttempts=0,autoNativeSurfaceRecovered=false;
 let lastVideoTelemetryAt=0;
 let freezeMarkerSerial=0;
+const manualVideoRescue=new ManualVideoRescue();
 let activeFreezeMarker:{serial:number;baseline:any}|null=null;
 let mediaTransitions=new MediaTransitionWatch();
 let webRtcFreezeWatch=new RecurrentWebRtcFreezeWatch();
@@ -337,6 +339,48 @@ async function recoverManuallyWithEvidence(){
   reportFreezeSample('freeze-after-recovery',recovered?'recovery-ok':'recovery-failed',
    after,compareFreezeEvidence(before,after));
  },4000);
+}
+/** Explicit VIDAA rescue; no automatic transport restart.
+ * First request creates a new DOM video plane with the existing MediaStream.
+ * If the user confirms that still failed, second request reconnects WebRTC
+ * to the SAME Xbox game session. No sign-in or title restart.
+ */
+async function rescueFrozenVideo(){
+ const now=Date.now();
+ const hasVideo=Boolean(player?.getVideoElement?.()?.srcObject);
+ const choice=manualVideoRescue.choose({now,playing:started,hasVideo});
+ if(choice.action==='busy'||videoRecoveryInFlight||reconnectingMedia){
+  status('Já existe uma recuperação de imagem ou transmissão em andamento.');
+  return;
+ }
+ if(choice.action==='cooldown'){
+  status('Aguarde a tentativa atual. Reinícios repetidos podem piorar o vídeo no VIDAA.');
+  notifyParent({type:'xbridge-rescue-stage',step:'cooldown'});
+  return;
+ }
+ if(choice.action==='unavailable'){
+  status('Não há partida ativa para recuperar. Abra o jogo pelo XBridge.');
+  notifyParent({type:'xbridge-rescue-stage',step:'unavailable'});
+  return;
+ }
+ if(!manualVideoRescue.start(choice.action,now))return;
+ notifyParent({type:'xbridge-rescue-stage',step:'start',stage:choice.action});
+ try{
+  if(choice.action==='surface'){
+   status('Recriando a superfície de vídeo VIDAA, preservando a partida Xbox…');
+   await rebuildNativeVideoSurfaceWithEvidence();
+   status('Superfície criada. Se a imagem ainda estiver parada, toque em Recuperar imagem novamente para reconectar o WebRTC.');
+   notifyParent({type:'xbridge-rescue-stage',step:'surface-complete'});
+  }else{
+   status('Reconectando somente o WebRTC à mesma partida, mantendo a conta Xbox…');
+   await reconnectXboxMediaWithoutRestart();
+   notifyParent({type:'xbridge-rescue-stage',step:'transport-complete'});
+   status('WebRTC reconectado ou solicitado. Confirme se os quadros voltaram na TV.');
+  }
+ }catch(error:any){
+  status('Recuperação falhou: '+String(error?.message||'erro').slice(0,110));
+  notifyParent({type:'xbridge-rescue-stage',step:'failed',stage:choice.action});
+ }finally{manualVideoRescue.finish();}
 }
 function trackMeaningfulGamepadInput(state:any){
  // Keep only a timestamp; never store the button sequence.
@@ -799,7 +843,7 @@ function startVideoHealth(){
    // stream's statistics report a freeze burst. VIDAA may show black flashes
    // every time srcObject is rebound. Keep automatic intervention opt-in
    // until we have reliable visual-presentation evidence on this TV.
-   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+   if(isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
       !protectRecoveredMetroSurface() && (doSoft || doStrong)){
     // No Game Pass advertisement skipping, no Xbox session restart, no
     // controller presses. Reconnect the DOM media element only once maximum.
@@ -843,7 +887,7 @@ function startVideoHealth(){
     lastManualRecoveryAt,enabled:opaqueRepairEnabled,
     recentMeaningfulInput:now-lastMeaningfulGamepadAt<30000
    });
-   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+   if(isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
       !protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
@@ -863,7 +907,7 @@ function startVideoHealth(){
    // black flash and might be mistaken for the original game freeze.
    let nativeRefreshEnabled=false;
    try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
-   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+   if(isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
       !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
     now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
@@ -952,6 +996,7 @@ const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 $('play').onclick=async()=>{
  if(started){status('Já existe uma tentativa em andamento.');return}
  started=true;
+ manualVideoRescue.reset();
  $('play').disabled=true;
  let phase='verificação';
  const announce=(message:string)=>{status(message); const el=document.getElementById('xb-launch-status');if(el)el.textContent=message;};
@@ -1328,6 +1373,8 @@ if (embedded) {
    }else{
     status('Controle ainda não pronto. Confira o estado do canal nas configurações.');
    }
+  } else if(event.data?.type==='xbridge-rescue-video'){
+   void rescueFrozenVideo();
   } else if(event.data?.type==='xbridge-reconnect-media'){
    // Explicit user action: preserve Xbox account and game session, only
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
