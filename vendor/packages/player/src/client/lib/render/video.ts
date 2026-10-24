@@ -112,6 +112,13 @@ export default class VideoComponent {
                     'scale('+ratioW.toFixed(3)+','+ratioH.toFixed(3)+')':'none','important')
                 videoElement.style.setProperty('transform-origin','left top','important')
                 videoElement.setAttribute('data-xbridge-scale-mode',scaleMode)
+                if(dedicatedNativeTvMode && topLevel){
+                    // VIDAA can paint the native overlay in physical pixels.
+                    // Clipping this 1920px surface inside the 1280px CSS host
+                    // cuts off the right/bottom and looks like broken fullscreen.
+                    // This is geometry setup BEFORE srcObject, not a live resize.
+                    host?.style.setProperty('overflow',scaleMode==='css'?'hidden':'visible','important')
+                }
             } catch (_) {}
         }
         // Presentation counter is updated by the browser's compositor callback,
