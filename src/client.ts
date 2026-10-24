@@ -289,6 +289,56 @@ async function autoRebuildMetroSurface(repeat=false):Promise<boolean>{
   return false;
  }finally{videoRecoveryInFlight=false;}
 }
+// Different decoder/compositor context rather than recreating the same
+// potentially wedged VIDAA plane. This is a last-resort USER request only.
+// The Xbox PC connection, data channel, game state and audio remain intact.
+async function migrateNativeVideoHostWithEvidence():Promise<boolean>{
+ const active=player;
+ if(videoRecoveryInFlight||reconnectingMedia||!started||!active){
+  status('Troca de motor indisponível: já existe uma reconexão ou partida não iniciada.');
+  notifyParent({type:'xbridge-video-host-migration',step:'busy'});
+  return false;
+ }
+ videoRecoveryInFlight=true;
+ lastManualRecoveryAt=Date.now();
+ const from=(active.getVideoElement?.() as HTMLVideoElement|undefined)
+   ?.getAttribute('data-xbridge-render-path')||'unknown';
+ traceVideo('surface-command',{stage:'host-migration',kind:'native-host-migration',
+  manual:true});
+ notifyParent({type:'xbridge-video-host-migration',step:'received',from});
+ try{
+  traceVideo('attempt',{stage:'host-migration',kind:'native-host-migration',
+   manual:true,from});
+  const to=await active.migrateNativeVideoHost?.() as string|null;
+  if(active!==player)return false;
+  if(to){
+   // Changing media documents can reset render counters. Discard previous
+   // trust calibration; never automatically chain another surface swap.
+   presentationWatch.reset();
+   adaptiveVideaWatch.reset();
+   healthPrevious=null;
+   visualWatchdog?.reset();
+   status('Motor do vídeo migrado para '+(to==='parent'?'a superfície principal da Toshiba':'o documento do player')+
+    '. Sua partida Xbox continua aberta. Verifique a imagem.');
+   traceVideo('result',{stage:'host-migration',kind:'native-host-migration',
+    result:'play-accepted',manual:true});
+   notifyParent({type:'xbridge-video-host-migration',step:'migrated',from,to});
+   return true;
+  }
+  traceVideo('result',{stage:'host-migration',kind:'native-host-migration',
+   result:'exception',manual:true});
+  notifyParent({type:'xbridge-video-host-migration',step:'failed',from});
+  status('VIDAA recusou a troca de motor; superfície original restaurada. A partida foi preservada.');
+  return false;
+ }catch(_){
+  traceVideo('result',{stage:'host-migration',kind:'native-host-migration',
+   result:'exception',manual:true});
+  notifyParent({type:'xbridge-video-host-migration',step:'failed',from});
+  status('Erro ao migrar o motor de vídeo. Sua sessão Xbox permanece aberta.');
+  return false;
+ }finally{videoRecoveryInFlight=false;}
+}
+
 async function rebuildNativeVideoSurfaceWithEvidence():Promise<boolean>{
  if(videoRecoveryInFlight){
   notifyParent({type:'xbridge-native-surface-rebuild',step:'busy'});
@@ -1594,8 +1644,16 @@ if (embedded) {
     status('Controle ainda não pronto. Confira o estado do canal nas configurações.');
    }
   } else if(event.data?.type==='xbridge-rescue-video'){
+   // Receipt is logged BEFORE WebRTC stats or any locked media operation.
+   traceVideo('surface-command',{stage:'keyframe',kind:'manual-rescue-request',
+    manual:true});
+   notifyParent({type:'xbridge-rescue-stage',step:'received'});
    void rescueFrozenVideo();
+  } else if(event.data?.type==='xbridge-migrate-video-host'){
+   void migrateNativeVideoHostWithEvidence();
   } else if(event.data?.type==='xbridge-reconnect-media'){
+   traceVideo('surface-command',{stage:'rebind',kind:'manual-reconnect-request',manual:true});
+   notifyParent({type:'xbridge-rescue-stage',step:'received',stage:'transport'});
    // Explicit user action: preserve Xbox account and game session, only
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
