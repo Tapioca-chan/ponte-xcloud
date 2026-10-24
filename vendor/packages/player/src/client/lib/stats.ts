@@ -18,29 +18,50 @@ export default class Stats {
     _remoteIsIpv6 = false
     _activeRemoteCandidate:string = ''
 
+    private _timer: ReturnType<typeof setInterval> | null = null
+    private _destroyed = false
+    private _polling = false
+
     constructor(player:xCloudPlayer) {
         this._player = player
         this._peerConnection = player._peerConnection
-
-        setInterval(this.loop.bind(this), 1000)
+        this._timer = setInterval(() => { void this.loop() }, 1000)
     }
 
-    loop(){
-        this._peerConnection.getStats().then((stats) => {
-            stats.forEach((report) => {
-                //  @TODO: Implement chat stats using type outbound-rtp
+    // A TV can create/destroy many media sessions. The old stats monitor
+    // continued to call getStats() every second on EACH closed connection,
+    // accumulating retained connections and asynchronous decoder/RTC work.
+    destroy(){
+        this._destroyed = true
+        if(this._timer !== null){
+            clearInterval(this._timer)
+            this._timer = null
+        }
+    }
 
+    async loop(){
+        if(this._destroyed || this._polling ||
+           this._peerConnection.signalingState === 'closed')return
+        this._polling = true
+        try{
+            const stats = await this._peerConnection.getStats()
+            if(this._destroyed)return
+            stats.forEach((report) => {
                 if(report.type === 'inbound-rtp'){
                     this.readInboundRtp(report)
-
-                } else if(report.type === 'candidate-pair' && report.packetsReceived !== undefined && report.packetsReceived > 0){
+                } else if(report.type === 'candidate-pair' &&
+                    report.packetsReceived !== undefined && report.packetsReceived > 0){
                     this.readCandidatePair(report)
-                    
                 } else if(report.type === 'remote-candidate'){
                     this.readRemoteCandidate(report)
                 }
             })
-        })
+        }catch(_){
+            // Some VIDAA builds reject getStats during ICE teardown.
+            // Never leave unhandled rejections or start an overlapping poll.
+        }finally{
+            this._polling = false
+        }
     }
 
     readInboundRtp(report:RTCInboundRtpStreamStats){
