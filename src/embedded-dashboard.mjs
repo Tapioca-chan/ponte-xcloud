@@ -367,6 +367,20 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
    await refreshFavoriteGames();await updateFavoriteLabel();
    if(activeFilter==='favorites')displayGames();
   };
+  function launchXboxRecentDirectly(game){
+    if(!game?.titleId)return;
+    selectGame(game.titleId);
+    // The original Xbox stream handler checks titleId and access against
+    // the authenticated cloud session. Never bypass a denied entitlement.
+    if(game.accessible===false || $('play').disabled){
+      notifyParent({type:'xbridge-game-access',status:'not_owned',
+        name:String(game.name||'').slice(0,150),
+        productId:String(game.productId||'').slice(0,40)});
+      return;
+    }
+    status('Abrindo '+String(game.name||'jogo')+' diretamente na sessão Xbox…');
+    $('play').click();
+  }
   function renderQuickAccess(){
     const row=$('xb-quick-row');
     row.replaceChildren();
@@ -399,8 +413,9 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         ?'Jogado recentemente':'Xbox Cloud Gaming';
       button.appendChild(art);button.appendChild(label);button.appendChild(meta);
       button.onclick=()=>{
-        selectGame(game.titleId);
-        openGameHub(game.titleId);
+        if(recentGames.some(x=>x.titleId===game.titleId))
+          launchXboxRecentDirectly(game);
+        else openGameHub(game.titleId);
       };
       row.appendChild(button);
     }
@@ -433,7 +448,8 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       const tag=document.createElement('small');tag.className='xb-card-sub';
       tag.textContent=game.accessible===true?'● Acesso confirmado na nuvem':game.accessible===false?'Sem acesso confirmado':game.genre||'Acesso não verificado';
       button.appendChild(art);button.appendChild(label);button.appendChild(tag);
-      button.onclick=()=>openGameHub(game.titleId);
+      button.onclick=()=>activeFilter==='recent'?
+        launchXboxRecentDirectly(game):openGameHub(game.titleId);
       fragment.appendChild(button);
     }
     grid.appendChild(fragment);
