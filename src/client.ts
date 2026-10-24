@@ -267,18 +267,18 @@ async function autoRebuildMetroSurface(repeat=false):Promise<boolean>{
   return false;
  }finally{videoRecoveryInFlight=false;}
 }
-async function rebuildNativeVideoSurfaceWithEvidence(){
+async function rebuildNativeVideoSurfaceWithEvidence():Promise<boolean>{
  if(videoRecoveryInFlight){
   notifyParent({type:'xbridge-native-surface-rebuild',step:'busy'});
   status('Outra recuperação da imagem já está em andamento.');
-  return;
+  return false;
  }
  const active=player;
  const media=active?.getVideoElement?.() as HTMLVideoElement|undefined;
  if(!active || !media?.srcObject || !media.isConnected){
   notifyParent({type:'xbridge-native-surface-rebuild',step:'no-video'});
-  status('Não há uma superfície de vídeo ativa. Use Recuperar imagem primeiro.');
-  return;
+  status('Não há uma superfície de vídeo ativa. Use Reconectar transmissão.');
+  return false;
  }
  videoRecoveryInFlight=true;
  ++freezeMarkerSerial;
@@ -293,7 +293,7 @@ async function rebuildNativeVideoSurfaceWithEvidence(){
  notifyParent({type:'xbridge-native-surface-rebuild',step:'start'});
  try{
   const rebuilt=await active.rebuildNativeVideoSurface?.()===true;
-  if(player!==active)return;
+  if(player!==active)return false;
   if(rebuilt){
    lastStrongVideoRebindAt=Date.now();
    healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
@@ -312,10 +312,12 @@ async function rebuildNativeVideoSurfaceWithEvidence(){
    const difference=compareFreezeEvidence(before,after);
    reportFreezeSample('surface-after','manual-surface',after,difference);
   },4500);
+  return rebuilt;
  }catch(_){
   status('Falha ao recriar a superfície do VIDAA. Sua sessão Xbox permanece ativa.');
   notifyParent({type:'xbridge-native-surface-rebuild',step:'failed'});
   traceVideo('result',{stage:'surface',kind:'native-plane-rebuild',result:'exception',manual:true});
+  return false;
  }finally{videoRecoveryInFlight=false;}
 }
 async function recoverManuallyWithEvidence(){
@@ -368,14 +370,16 @@ async function rescueFrozenVideo(){
  try{
   if(choice.action==='surface'){
    status('Recriando a superfície de vídeo VIDAA, preservando a partida Xbox…');
-   await rebuildNativeVideoSurfaceWithEvidence();
-   status('Superfície criada. Se a imagem ainda estiver parada, toque em Recuperar imagem novamente para reconectar o WebRTC.');
-   notifyParent({type:'xbridge-rescue-stage',step:'surface-complete'});
+   const rebuilt=await rebuildNativeVideoSurfaceWithEvidence();
+   status(rebuilt?
+    'Superfície substituída (reprodução solicitada). Se a tela continua congelada, toque novamente para reconectar a transmissão.':
+    'O VIDAA recusou a nova superfície. Toque em Recuperar imagem novamente para tentar reconectar o WebRTC.');
+   notifyParent({type:'xbridge-rescue-stage',step:rebuilt?'surface-complete':'surface-failed'});
   }else{
    status('Reconectando somente o WebRTC à mesma partida, mantendo a conta Xbox…');
-   await reconnectXboxMediaWithoutRestart();
-   notifyParent({type:'xbridge-rescue-stage',step:'transport-complete'});
-   status('WebRTC reconectado ou solicitado. Confirme se os quadros voltaram na TV.');
+   const reconnected=await reconnectXboxMediaWithoutRestart();
+   notifyParent({type:'xbridge-rescue-stage',step:reconnected?'transport-complete':'transport-failed'});
+   if(reconnected)status('Conexão WebRTC negociada. Aguardando imagem nova do Xbox; a confirmação visual depende da Toshiba.');
   }
  }catch(error:any){
   status('Recuperação falhou: '+String(error?.message||'erro').slice(0,110));
@@ -669,7 +673,7 @@ function startVideoHealth(){
     overlayOpen:false,videoReadyState:sample.videoReadyState,
     hasVideo:Boolean(media?.srcObject),connection:effectiveState
    });
-   if(!isMetro && introEligible && gameOverlayOpen)queuedMetroIntroRecovery=true;
+   if(isMetro && introEligible && gameOverlayOpen)queuedMetroIntroRecovery=true;
    const introFreeze=introEligible && !gameOverlayOpen;
    const visualFrozen=visual?.frozen===true;
    const signalFrozen=shouldAutoRepairAfterVideoEvidence({
@@ -1179,9 +1183,9 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
  },30000);
 }
 let reconnectingMedia=false;
-async function reconnectXboxMediaWithoutRestart(){
- if(reconnectingMedia){status('A reconexão já está em andamento.');return}
- if(!started){status('Inicie o jogo antes de reconectar a transmissão.');return}
+async function reconnectXboxMediaWithoutRestart():Promise<boolean>{
+ if(reconnectingMedia){status('A reconexão já está em andamento.');return false}
+ if(!started){status('Inicie o jogo antes de reconectar a transmissão.');return false}
  reconnectingMedia=true;
  const tell=(message:string)=>{status(message);const el=document.getElementById('xb-launch-status');if(el)el.textContent=message;};
  try{
@@ -1197,13 +1201,15 @@ async function reconnectXboxMediaWithoutRestart(){
   notifyParent({type:'xbridge-playing',playing:false});
   await pause(250);
   await connectExistingXboxSession(tell);
-  tell('Transmissão reconectada à mesma partida. Aguardando imagem…');
+  tell('WebRTC negociado com a mesma partida. Aguardando quadros reais do Xbox…');
+  return true;
  }catch(e:any){
   // An SDP renegotiation can be rejected by the Xbox service. Do not
   // automatically delete its session or refresh Microsoft credentials.
   const message='Xbox recusou reconectar esta transmissão: '+String(e?.message||'erro desconhecido').slice(0,135);
   tell(message);
   notifyParent({type:'xbridge-player-error',message});
+  return false;
  }finally{reconnectingMedia=false}
 }
 function advance(){calStep++;calWaiting=Date.now()+700;previous=null;baseAxes=[];if(calStep>=fields.length){calStep=-1;localStorage.setItem(mappingKey,JSON.stringify(map));$('calibration').textContent='Mapeamento salvo neste celular.';$('skip').hidden=true;}else $('calibration').textContent='Solte os comandos e depois acione: '+fields[calStep]+(axes.includes(fields[calStep])?' (mova para direita ou para baixo)':'');}
