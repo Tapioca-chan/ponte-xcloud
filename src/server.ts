@@ -400,10 +400,20 @@ if(action==='recent'){
       keepalive:'Falha ao manter a sessão ativa.',
       reset:'Não foi possível reiniciar a sessão.'
     };
-    console.warn('[Player action]',stage,'failed',upstreamStatus||'no-http-code');
-    reply(res,upstreamStatus===429?429:upstreamStatus===403?403:502,{
-      error:(messages[stage]||'Falha de comunicação com Xbox Cloud Gaming.')+(upstreamStatus?' (Xbox HTTP '+upstreamStatus+')':''),
-      stage,upstreamStatus:upstreamStatus||null
+    const sessionExpired=['keepalive','state','sdp','ice','connect'].includes(stage) &&
+      (upstreamStatus===410||upstreamStatus===404);
+    // Microsoft account cookies survive session expiry; only the dead
+    // WebRTC streaming session has to be recreated.
+    console.warn('[Player action]',stage,'failed',upstreamStatus||'no-http-code',
+      sessionExpired?'session-expired':'');
+    reply(res,sessionExpired?410:upstreamStatus===429?429:upstreamStatus===403?403:502,{
+      error:sessionExpired?
+        'A sessão de streaming Xbox terminou ou expirou. Sua conta continua salva; inicie uma nova sessão.':
+        (messages[stage]||'Falha de comunicação com Xbox Cloud Gaming.')+
+          (upstreamStatus?' (Xbox HTTP '+upstreamStatus+')':''),
+      stage,reason:sessionExpired?'session_expired':upstreamStatus===429?'rate_limited':'upstream_unavailable',
+      retryable:upstreamStatus===429,
+      upstreamStatus:upstreamStatus||null
     });
   }
 });
