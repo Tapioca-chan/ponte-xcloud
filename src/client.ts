@@ -1413,7 +1413,10 @@ if (embedded) {
    // renegotiate WebRTC offer/ICE to emulate returning to the same game.
    void reconnectXboxMediaWithoutRestart();
   } else if(event.data?.type==='xbridge-mark-frozen'){
-   // Pure observation: no media rebind, controller packet or keyframe request.
+   // Pure observation, including a frozen video with stale "playing" state.
+   // Acknowledge BEFORE getStats() so a hung TV decoder is distinguishable
+   // from a TV/iframe message-routing failure.
+   notifyParent({type:'xbridge-freeze-marked',step:'received'});
    void markVisibleFreeze();
   } else if(event.data?.type==='xbridge-rebuild-native-video'){
    // An unconditional receipt marker distinguishes TV relay failures from
