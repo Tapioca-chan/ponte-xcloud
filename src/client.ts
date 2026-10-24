@@ -25,6 +25,9 @@ const embeddedVideoHostMode=embedded && playerParams.get('videoHost')==='iframe'
 // The CSS video plane still uses the full TV viewport. Only the Xbox
 // server-requested H.264 stream size changes, and only at game creation.
 const xboxVideoResolution:720|1080=embedded && playerParams.get('videoResolution')!=='1080'?720:1080;
+// The default H.264 codec sequence is chosen by the TV's WebRTC engine.
+// The old constrained-baseline-first order can be enabled only for A/B tests.
+const xboxVideoCodecMode:'browser'|'legacy'=embedded && playerParams.get('videoCodec')==='legacy'?'legacy':'browser';
 if(embeddedVideoHostMode==='iframe' && embedded)document.body.classList.add('xb-video-inframe');
 // The TV embeds this player via its SAME-ORIGIN /player reverse proxy.
 // Hard-coding the previous xcloud-tv host silently discards 'xbridge-ready'
@@ -1076,7 +1079,7 @@ $('stop').onclick=run(async()=>{clearInterval(keepalive);stopVideoHealth();playe
 // /api/reset, or account logout when renegotiating an existing Xbox session.
 async function connectExistingXboxSession(announce:(message:string)=>void){
   let phase='webrtc';announce('Iniciando conexão de vídeo e controle WebRTC…');
-  player=new Player('playerContainer');
+  player=new Player('playerContainer',xboxVideoCodecMode);
   // Compatibility experiment is scoped to Metro Exodus, whose official
   // browser stream launches while the independent client stalls at its intro.
   // Marvel Rivals and other working games retain their existing handshake.
@@ -1089,7 +1092,7 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   (player as any).__xbridgePreallocateVideaSurface=shouldPreallocateVideaSurface(launchedName);
   (player as any).__xbridgeVideoHostMode=embeddedVideoHostMode;
-  traceVideo('render-path',{mode:embeddedVideoHostMode,canvasReadback:false});
+  traceVideo('render-path',{mode:embeddedVideoHostMode,codecMode:xboxVideoCodecMode,canvasReadback:false});
   player.init();
   if(metroSystemDialogCompat)announce('Metro Exodus: monitorando possíveis confirmações Xbox.');
   clearInputHealth();
