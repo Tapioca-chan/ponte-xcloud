@@ -44,6 +44,12 @@ export default class VideoComponent {
         // rebuilt without renegotiating or restarting Xbox WebRTC.
         const renderPath=topLevel?'parent':iframeNativeMode?'iframe':'standalone'
         videoElement.setAttribute('data-xbridge-render-path',renderPath)
+        try{
+            if(topLevel){
+                const parentScale=window.parent.localStorage.getItem('xbridge:video-plane-scale')||'physical'
+                videoElement.setAttribute('data-xbridge-scale-mode',parentScale)
+            }
+        }catch(_){}
         if(dedicatedNativeTvMode && topLevel){
             videoElement.setAttribute('data-xbridge-render-pipeline','native-tv')
             // Prepare the ONLY native video host before assigning srcObject.
@@ -65,7 +71,14 @@ export default class VideoComponent {
         // Diagnostic native mode: RTCPeerConnection and HTMLVideoElement live
         // in the SAME document. Unlike parent-hoisted mode it does not pass
         // a MediaStream between VIDAA browser document/compositor contexts.
+        // Restore the Oct-22 parent renderer: create/attach the real video
+        // immediately, let VIDAA establish the first decoder plane, then
+        // have TV reassert 1920x1080 twice (not forever). Pre-binding all
+        // parent-hosted videos was introduced AFTER the verified fullscreen.
+        // Keep preallocation for the opt-in native-tv and iframe A/B paths.
+        const legacyParentGeometry=topLevel && !dedicatedNativeTvMode
         const nativePlanePreflight = (topLevel||iframeNativeMode) &&
+            !legacyParentGeometry &&
             (dedicatedNativeTvMode || Boolean((this._player as any).__xbridgePreallocateVideaSurface))
         if(!nativePlanePreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
@@ -244,7 +257,7 @@ export default class VideoComponent {
                     topLevel,renderPath:iframeNativeMode?'iframe':'parent',
                     pipeline:dedicatedNativeTvMode&&topLevel?'native-tv':renderPath,
                     scale:videoElement.getAttribute('data-xbridge-scale-mode')||'unknown',
-                    rendererVersion:'vidaa-scale-v2'},location.origin)
+                    rendererVersion:legacyParentGeometry?'oct22-parent-v3':'vidaa-scale-v2'},location.origin)
             } catch (_) {}
         }
         // VIDAA may block autoplay despite muted inline video; the user can
