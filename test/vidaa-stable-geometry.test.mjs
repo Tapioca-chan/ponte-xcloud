@@ -22,7 +22,9 @@ test('Oct-22 parent renderer restores attach-before-first-frame and leaves Xbox 
  const start=video.indexOf('const notifyVideoReady = () => {');
  const end=video.indexOf("videoElement.addEventListener('loadeddata', notifyVideoReady");
  const section=video.slice(start,end);
- assert.ok(section.includes('if(!nativePlanePreflight){'));
+ assert.ok(section.includes('if(!nativePlanePreflight && !topLevel){'));
  assert.ok(section.includes("force(videoElement,'width','100%')"));
+ assert.match(section,/Do not/);
+ assert.ok(section.includes('Parent-hosted video owns a FIXED 100vw/100vh container'));
  assert.match(section,/document\.body\.classList\.add\('stream-playing'\)/);
 });
