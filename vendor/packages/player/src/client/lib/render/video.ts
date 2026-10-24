@@ -37,6 +37,11 @@ export default class VideoComponent {
             // Ordinary standalone player remains supported.
         }
         const videoElement = renderDocument.createElement('video')
+        // Preserve the actual renderer identity on the media element. The
+        // direct iframe path is also a native VIDEO surface and can be
+        // rebuilt without renegotiating or restarting Xbox WebRTC.
+        const renderPath=topLevel?'parent':iframeNativeMode?'iframe':'standalone'
+        videoElement.setAttribute('data-xbridge-render-path',renderPath)
         // Prepare compatible games' native VIDAA video plane BEFORE setting srcObject.
         // Initial media attachment can allocate the hardware/software plane
         // at whatever layout size is present on the first frame. Late physical
@@ -245,8 +250,12 @@ export default class VideoComponent {
         const old=this._element
         const stream=old?.srcObject
         const host=old?.parentElement
-        if(!old || !host || !stream ||
-          old.getAttribute('data-xbridge-top-video')!=='1' || !old.isConnected)return false
+        // Both video-host strategies are supported. The former check for
+        // data-xbridge-top-video rejected EVERY user rescue in the default
+        // iframe mode, causing unnecessary full WebRTC reconnects.
+        const renderPath=old?.getAttribute('data-xbridge-render-path')
+        if(!old || !host || !stream || !old.isConnected ||
+          !['parent','iframe'].includes(renderPath||''))return false
         this._surfaceRebuildBusy=true
         const replacement=old.ownerDocument.createElement('video') as HTMLVideoElement & {__xbridgePresentedFrames?:number}
         replacement.autoplay=true
@@ -254,9 +263,10 @@ export default class VideoComponent {
         replacement.playsInline=true
         replacement.setAttribute('playsinline','')
         replacement.setAttribute('webkit-playsinline','')
-        replacement.setAttribute('data-xbridge-top-video','1')
+        replacement.setAttribute('data-xbridge-render-path',renderPath!)
+        if(renderPath==='parent')replacement.setAttribute('data-xbridge-top-video','1')
         replacement.style.cssText=old.style.cssText
-        replacement.style.pointerEvents='none'
+        replacement.style.pointerEvents=old.style.pointerEvents
         replacement.__xbridgePresentedFrames=0
         let switched=false
         try {
@@ -280,7 +290,7 @@ export default class VideoComponent {
             })
             try{
                 if(window.parent!==window && window.parent.location.origin===location.origin){
-                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:true,rebuilt:true},location.origin)
+                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:renderPath==='parent',renderPath,rebuilt:true},location.origin)
                 }
             }catch(_){}
             let rejected=false
@@ -302,7 +312,7 @@ export default class VideoComponent {
                 this.beginFrameMetadataLoop(old)
                 void old.play().catch(()=>{})
                 if(window.parent!==window && window.parent.location.origin===location.origin){
-                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:true,rebuilt:false},location.origin)
+                    window.parent.postMessage({type:'xbridge-video-attached',topLevel:renderPath==='parent',renderPath,rebuilt:false},location.origin)
                 }
             }catch(_){}
             return false
