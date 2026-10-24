@@ -31,6 +31,22 @@ const $=(id:string)=>document.getElementById(id) as any;
 const status=(s:string)=>{$('status').textContent=s;notifyParent({type:'xbridge-player-status',message:s});};
 const run=(fn:()=>any)=>async()=>{try{await fn();}catch(e:any){status(e.message||'Falha na conexão');}};
 let backend='',room:any,ws:WebSocket,player:any,keepalive:any,frame=sanitize({}),lastFrame=0,started=false;
+let keepaliveInFlight=false,sessionExpired=false,idleNoticeShown=false,idlePromptTimer:any=null;
+function stopIdleMonitor(){if(idlePromptTimer)clearInterval(idlePromptTimer);idlePromptTimer=null;idleNoticeShown=false;}
+function startIdleMonitor(){
+ stopIdleMonitor();
+ lastMeaningfulGamepadAt=Date.now();
+ idlePromptTimer=setInterval(()=>{
+  if(!started||sessionExpired||!player||idleNoticeShown)return;
+  if(Date.now()-lastMeaningfulGamepadAt>14*60*1000){
+   // Local reminder only. Never synthesize Microsoft gamepad inputs.
+   idleNoticeShown=true;notifyParent({type:'xbridge-inactivity-reminder',idleMinutes:14});
+  }
+ },15000);
+}
+function canAutoInterruptVideo(){
+ try{return localStorage.getItem('xbridge:video-auto-repair')==='true'}catch{return false}
+}
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
 let lastStrongVideoRebindAt=0;
@@ -189,6 +205,7 @@ async function markVisibleFreeze(){
 // The existing startup policy allows this once, with frozen-frame counters,
 // a completed ad grace and protection against overlays and real gameplay.
 async function autoRebuildMetroSurface(repeat=false):Promise<boolean>{
+ if(!canAutoInterruptVideo())return false;
  if(videoRecoveryInFlight || activeFreezeMarker || gameOverlayOpen ||
     !needsXboxDialogCompatibility(launchedStreamingTitle))return false;
  const active=player;
@@ -327,6 +344,7 @@ function trackMeaningfulGamepadInput(state:any){
    && typeof value==='number' && Math.abs(value)>0.27))lastMeaningfulGamepadAt=Date.now();
 }
 async function recoverXboxVideoLocally(reason:'manual'|'automatic',kind='unknown'):Promise<boolean>{
+ if(reason==='automatic'&&!canAutoInterruptVideo())return false;
  // The WebRTC stream stays connected. For automatic repairs prefer pause/play
  // + a lightweight parent-surface repaint. Escalate to srcObject rebind only
  // after subsequent corroborating browser freeze evidence. Manual recovery
@@ -1077,7 +1095,34 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   await player.setRemoteIceCandidates(remoteCandidates);
   announce('Conexão negociada. Aguardando imagem do jogo…');
   startVideoHealth();
-  keepalive=setInterval(()=>api('keepalive').catch(()=>announce('Falha ao manter a sessão Xbox ativa.')),30000);
+  clearInterval(keepalive);
+ keepaliveInFlight=false;sessionExpired=false;
+ startIdleMonitor();
+ let failures=0;
+ keepalive=setInterval(async()=>{
+  if(keepaliveInFlight||sessionExpired||!started)return;
+  keepaliveInFlight=true;
+  try{await api('keepalive');failures=0;}
+  catch(error:any){
+   const expired=error?.status===410||error?.reason==='session_expired';
+   if(expired){
+    sessionExpired=true;
+    clearInterval(keepalive);stopVideoHealth();stopIdleMonitor();
+    started=false;
+    document.body.classList.remove('stream-playing');
+    notifyParent({type:'xbridge-playing',playing:false});
+    notifyParent({type:'xbridge-game-session',active:false});
+    notifyParent({type:'xbridge-session-expired',reason:'xbox-session-expired',
+     title:launchedStreamingTitle});
+    announce('Sessão Xbox encerrada (HTTP 410). Sua conta está salva. Reinicie a partida pelo XBridge.');
+   }else if(error?.status===429){
+    announce('Xbox limitando requisições (429). Evitando tentativas contínuas.');
+   }else if(++failures>=3){
+    announce('Verificação da sessão Xbox indisponível. Diagnóstico disponível no XBridge.');
+    notifyParent({type:'xbridge-session-warning',reason:'keepalive-unavailable'});
+   }
+  }finally{keepaliveInFlight=false;}
+ },30000);
 }
 let reconnectingMedia=false;
 async function reconnectXboxMediaWithoutRestart(){
@@ -1218,6 +1263,10 @@ if (embedded) {
    if(!document.body.classList.contains('stream-playing'))handleConsoleController(inputEdges.sample(frame));
    else inputEdges.release();
    $('remote').textContent='Controle do celular recebendo comandos';
+   } else if(event.data?.type==='xbridge-keep-playing'){
+   lastMeaningfulGamepadAt=Date.now();
+   idleNoticeShown=false;
+   notifyParent({type:'xbridge-inactivity-cleared'});
   } else if(event.data?.type==='xbridge-release'){
    frame=sanitize({});lastFrame=0;inputEdges.release();$('remote').textContent='Aguardando comandos do celular';
   } else if(event.data?.type==='xbridge-start-auth'){
