@@ -793,7 +793,12 @@ function startVideoHealth(){
     webRtcFreezeWatch.acknowledgeRecovery();
     visualWatchdog?.reset();
    }
-   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && (doSoft || doStrong)){
+   // Do not reconstruct a healthy native video surface merely because the
+   // stream's statistics report a freeze burst. VIDAA may show black flashes
+   // every time srcObject is rebound. Keep automatic intervention opt-in
+   // until we have reliable visual-presentation evidence on this TV.
+   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+      !protectRecoveredMetroSurface() && (doSoft || doStrong)){
     // No Game Pass advertisement skipping, no Xbox session restart, no
     // controller presses. Reconnect the DOM media element only once maximum.
     const stage=doStrong?'strong':'soft';
@@ -836,7 +841,8 @@ function startVideoHealth(){
     lastManualRecoveryAt,enabled:opaqueRepairEnabled,
     recentMeaningfulInput:now-lastMeaningfulGamepadAt<30000
    });
-   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
+   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+      !protectRecoveredMetroSurface() && opaqueZeroFreezeProbe){
     metroRecoveryAttempts++;
     metroLastRecoveryAt=now;
     queuedMetroIntroRecovery=false;
@@ -855,7 +861,8 @@ function startVideoHealth(){
    // black flash and might be mistaken for the original game freeze.
    let nativeRefreshEnabled=false;
    try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
-   if(!isMetro && canAutoInterruptVideo() && !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
+   if(!isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
+      !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
     now,firstVideoAt:nativePlaneFirstVideoAt,attempts:metroRecoveryAttempts,
     lastAttemptAt:metroLastRecoveryAt,lastManualAt:lastManualRecoveryAt,
