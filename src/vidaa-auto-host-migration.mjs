@@ -21,6 +21,10 @@ export class VideaAutoHostMigration{
   this.totalPostKeyframeFreezeRise=0;
   this.attempts=0;
   this.lastMigrationAt=0;
+  this.preKeyframeFreezeSamples=0;
+  this.lastPreKeyframeFreezeAt=0;
+  this.keyframePrimedByFreezes=false;
+  this.postKeyframeProgressSamples=0;
  }
  noteKeyframe(at){
   if(!Number.isFinite(at)||at<=0)return;
@@ -28,6 +32,12 @@ export class VideaAutoHostMigration{
   // a stuck Toshiba has been actively reporting freezes.
   if(this.keyframeAt && at-this.keyframeAt<90000)return;
   this.keyframeAt=at;
+  // VIDAA can keep decoding during a stuck physical video plane. Keep
+  // independently observed PRE-keyframe RTC freezes as limited evidence.
+  this.keyframePrimedByFreezes=this.preKeyframeFreezeSamples>=2 &&
+    at-this.lastPreKeyframeFreezeAt<=35000;
+  this.preKeyframeFreezeSamples=0;
+  this.postKeyframeProgressSamples=0;
   this.postKeyframeFreezeSamples=0;
   this.totalPostKeyframeFreezeRise=0;
  }
@@ -43,6 +53,8 @@ export class VideaAutoHostMigration{
    // Don't accumulate evidence while user is in menus, not sending gamepad
    // input, or manual/other recovery is active.
    this.postKeyframeFreezeSamples=0;this.totalPostKeyframeFreezeRise=0;
+   this.preKeyframeFreezeSamples=0;this.postKeyframeProgressSamples=0;
+   this.keyframePrimedByFreezes=false;
    return state('not-active');
   }
   if(!prev||!Number.isFinite(now)||now<=prev.now||now-prev.now>20000||
@@ -50,19 +62,35 @@ export class VideaAutoHostMigration{
      prev.decoded===null||prev.received===null||prev.freezes===null||
      next.decoded<prev.decoded||next.received<prev.received||next.freezes<prev.freezes){
    this.postKeyframeFreezeSamples=0;this.totalPostKeyframeFreezeRise=0;
+   this.preKeyframeFreezeSamples=0;this.postKeyframeProgressSamples=0;
+   this.keyframePrimedByFreezes=false;
    return state('baseline');
   }
-  if(!this.keyframeAt||now-this.keyframeAt<12000)return state('keyframe-settling');
+  const progressing=next.decoded-prev.decoded>=6 && next.received>prev.received;
+  const freezeRise=next.freezes-prev.freezes;
+  if(!this.keyframeAt){
+   if(progressing && freezeRise>0){
+    if(this.lastPreKeyframeFreezeAt && now-this.lastPreKeyframeFreezeAt>35000)
+     this.preKeyframeFreezeSamples=0;
+    this.preKeyframeFreezeSamples++;
+    this.lastPreKeyframeFreezeAt=now;
+   }
+   if(this.preKeyframeFreezeSamples>=2)
+    return {action:'keyframe',reason:'recurrent-freezes-before-keyframe',freezeSamples:this.preKeyframeFreezeSamples};
+   return state('awaiting-recurrent-freeze-evidence');
+  }
+  if(now-this.keyframeAt<12000)return state('keyframe-settling');
   if(now-this.keyframeAt>90000){
    this.postKeyframeFreezeSamples=0;this.totalPostKeyframeFreezeRise=0;
    return state('keyframe-expired');
   }
   if(this.lastMigrationAt&&now-this.lastMigrationAt<300000)return state('cooldown');
-  if(next.decoded-prev.decoded<6||next.received<=prev.received){
+  if(!progressing){
    this.postKeyframeFreezeSamples=0;this.totalPostKeyframeFreezeRise=0;
+   this.postKeyframeProgressSamples=0;
    return state('stream-not-advancing');
   }
-  const freezeRise=next.freezes-prev.freezes;
+  this.postKeyframeProgressSamples++;
   if(freezeRise>0){
    this.postKeyframeFreezeSamples++;
    this.totalPostKeyframeFreezeRise+=freezeRise;
@@ -72,7 +100,17 @@ export class VideaAutoHostMigration{
    return {action:'migrate',reason:'post-keyframe-recurrent-freezes',
       freezeSamples:this.postKeyframeFreezeSamples,freezeRise:this.totalPostKeyframeFreezeRise};
   }
-  return state('watching');
+  // On VIDAA the physical frame can remain frozen after RTC freezeCount
+  // stabilizes. With explicit opt-in, two INDEPENDENT pre-keyframe freezes,
+  // a requested keyframe, and three progressing post-keyframe stats samples
+  // justify one experimental compositor migration. This is a risk heuristic,
+  // NOT proof that the displayed frame is still frozen.
+  if(this.keyframePrimedByFreezes && now-this.keyframeAt>=18000 &&
+     this.postKeyframeProgressSamples>=3){
+   return {action:'migrate',reason:'pre-keyframe-recurrent-freezes',
+     freezeSamples:this.preKeyframeFreezeSamples,freezeRise:this.totalPostKeyframeFreezeRise};
+  }
+  return state(this.keyframePrimedByFreezes?'watching-pre-keyframe-risk':'watching');
  }
  acknowledgeAttempt(now){
   this.attempts++;
@@ -80,6 +118,9 @@ export class VideaAutoHostMigration{
   this.keyframeAt=0;
   this.postKeyframeFreezeSamples=0;
   this.totalPostKeyframeFreezeRise=0;
+  this.preKeyframeFreezeSamples=0;
+  this.postKeyframeProgressSamples=0;
+  this.keyframePrimedByFreezes=false;
   this.lastSample=null;
  }
 }
