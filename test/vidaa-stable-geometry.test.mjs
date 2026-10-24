@@ -10,7 +10,7 @@ test('all titles have their final VIDAA native geometry before MediaStream bindi
  }
  assert.equal(shouldPreallocateVideaSurface(''),false);
  assert.match(video,/if\(nativePlanePreflight\)\s*\{[\s\S]*?this\._element\.srcObject=stream/);
- assert.match(video,/const nativePlanePreflight = topLevel/);
+ assert.match(video,/const nativePlanePreflight = \(topLevel\|\|iframeNativeMode\)/);
 });
 
 test('a decoded first frame must not reconfigure VIDAA parent or video geometry',()=>{
