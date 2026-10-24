@@ -1128,9 +1128,18 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
    if(player!==activePlayer)return;
    const state=pc.connectionState;
    announce('Conexão de vídeo: '+state);
-   if(state==='failed'||state==='disconnected'||state==='closed'){
-    document.body.classList.remove('stream-playing');
-    notifyParent({type:'xbridge-playing',playing:false});
+   // An ICE disconnect/failure does NOT mean the Xbox game was stopped.
+  // Clearing "stream-playing" here shrinks the full-screen VIDAA video host
+  // and the one-shot loadeddata handler may never restore its geometry after
+  // the network reconnects. Keep the native plane mounted until explicit
+  // stop, or user-driven reconnection to the same Xbox session.
+  notifyParent({type:'xbridge-rtc-state',state});
+  if(state==='connected' && started){
+    const media=activePlayer?.getVideoElement?.() as HTMLVideoElement|undefined;
+    if(media?.srcObject && media.readyState>=2){
+      document.body.classList.add('stream-playing');
+      notifyParent({type:'xbridge-playing',playing:true});
+    }
    }
   });
   phase='sdp';announce('Negociando áudio e vídeo com o Xbox…');
