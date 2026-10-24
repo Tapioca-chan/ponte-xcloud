@@ -79,7 +79,10 @@ export class VideaAutoHostMigration{
     return {action:'keyframe',reason:'recurrent-freezes-before-keyframe',freezeSamples:this.preKeyframeFreezeSamples};
    return state('awaiting-recurrent-freeze-evidence');
   }
-  if(now-this.keyframeAt<12000)return state('keyframe-settling');
+  if(now-this.keyframeAt<12000){
+   if(progressing)this.postKeyframeProgressSamples++;
+   return state('keyframe-settling');
+  }
   if(now-this.keyframeAt>90000){
    // Allow a NEW evidence cycle later in the same game when no migration
    // happened. The one-migration-per-session limit remains authoritative.
