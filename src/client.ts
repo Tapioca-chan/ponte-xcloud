@@ -19,7 +19,10 @@ import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs'
 import {decoderSummary} from './decoder-health.mjs';
 import {compareFreezeEvidence} from './freeze-evidence.mjs';
 import {ManualVideoRescue} from './manual-video-rescue.mjs';
-const embedded = new URLSearchParams(location.search).get('embed') === 'xbridge' && window.parent !== window;
+const playerParams=new URLSearchParams(location.search);
+const embedded = playerParams.get('embed') === 'xbridge' && window.parent !== window;
+const embeddedVideoHostMode=embedded && playerParams.get('videoHost')==='iframe'?'iframe':'parent';
+if(embeddedVideoHostMode==='iframe' && embedded)document.body.classList.add('xb-video-inframe');
 // The TV embeds this player via its SAME-ORIGIN /player reverse proxy.
 // Hard-coding the previous xcloud-tv host silently discards 'xbridge-ready'
 // and video/control messages on the new xBridge-branded Render address.
@@ -349,8 +352,12 @@ async function recoverManuallyWithEvidence(){
  */
 async function rescueFrozenVideo(){
  const now=Date.now();
- const hasVideo=Boolean(player?.getVideoElement?.()?.srcObject);
- const choice=manualVideoRescue.choose({now,playing:started,hasVideo});
+ const video=player?.getVideoElement?.() as HTMLVideoElement|undefined;
+ // If rendering in the iframe there is no parent native plane to rebuild:
+ // the first explicit user rescue can directly renegotiate this SAME session.
+ const hasRecoverableSurface=Boolean(video?.srcObject &&
+   video.getAttribute('data-xbridge-top-video')==='1');
+ const choice=manualVideoRescue.choose({now,playing:started,hasVideo:hasRecoverableSurface});
  if(choice.action==='busy'||videoRecoveryInFlight||reconnectingMedia){
   status('Já existe uma recuperação de imagem ou transmissão em andamento.');
   return;
@@ -1073,6 +1080,8 @@ async function connectExistingXboxSession(announce:(message:string)=>void){
   const metroSystemDialogCompat=needsXboxDialogCompatibility(launchedName);
   (player as any).__xbridgeShowMessageDialogs=metroSystemDialogCompat;
   (player as any).__xbridgePreallocateVideaSurface=shouldPreallocateVideaSurface(launchedName);
+  (player as any).__xbridgeVideoHostMode=embeddedVideoHostMode;
+  traceVideo('render-path',{mode:embeddedVideoHostMode,canvasReadback:false});
   player.init();
   if(metroSystemDialogCompat)announce('Metro Exodus: monitorando possíveis confirmações Xbox.');
   clearInputHealth();
