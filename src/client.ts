@@ -24,7 +24,9 @@ import {compareFreezeEvidence} from './freeze-evidence.mjs';
 import {ManualVideoRescue} from './manual-video-rescue.mjs';
 const playerParams=new URLSearchParams(location.search);
 const embedded = playerParams.get('embed') === 'xbridge' && window.parent !== window;
-const embeddedVideoHostMode=embedded && playerParams.get('videoHost')==='iframe'?'iframe':'parent';
+const hostParam=embedded?playerParams.get('videoHost'):null;
+const embeddedVideoHostMode:'iframe'|'parent'|'native-tv'=
+  hostParam==='iframe'?'iframe':hostParam==='native-tv'?'native-tv':'parent';
 // The CSS video plane still uses the full TV viewport. Only the Xbox
 // server-requested H.264 stream size changes, and only at game creation.
 const xboxVideoResolution:720|1080=embedded && playerParams.get('videoResolution')!=='1080'?720:1080;
