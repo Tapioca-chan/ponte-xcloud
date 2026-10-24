@@ -71,15 +71,13 @@ export default class VideoComponent {
         // Diagnostic native mode: RTCPeerConnection and HTMLVideoElement live
         // in the SAME document. Unlike parent-hoisted mode it does not pass
         // a MediaStream between VIDAA browser document/compositor contexts.
-        // Restore the Oct-22 parent renderer: create/attach the real video
-        // immediately, let VIDAA establish the first decoder plane, then
-        // have TV reassert 1920x1080 twice (not forever). Pre-binding all
-        // parent-hosted videos was introduced AFTER the verified fullscreen.
-        // Keep preallocation for the opt-in native-tv and iframe A/B paths.
+        // A 1280x720 initial native plane can stay permanently small on
+        // VIDAA even after DOM/CSS is enlarged. Reserve physical geometry
+        // BEFORE srcObject binds the first decoder frame in EVERY parent mode.
+        // This does not renegotiate WebRTC, change game input, or add a timer.
         const legacyParentGeometry=topLevel && !dedicatedNativeTvMode
         const nativePlanePreflight = (topLevel||iframeNativeMode) &&
-            !legacyParentGeometry &&
-            (dedicatedNativeTvMode || Boolean((this._player as any).__xbridgePreallocateVideaSurface))
+            (topLevel || Boolean((this._player as any).__xbridgePreallocateVideaSurface))
         if(!nativePlanePreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
@@ -107,16 +105,29 @@ export default class VideoComponent {
                 // 1920px dimensions. That made the TV scaling A/B useless.
                 // Compute geometry ONCE, before attaching srcObject, to avoid
                 // a live native-overlay realloc/black flash.
-                const ratioW=Math.max(1,Math.min(2.5,screenW/viewportW))
-                const ratioH=Math.max(1,Math.min(2.5,screenH/viewportH))
+                // VIDAA can report screen.width=1280 AND innerWidth=1280
+                // while the physical video output is 1920. When the parent
+                // explicitly selected physical mode on the known 720p/FHD
+                // Toshiba viewport, use the observed 3:2 panel compensation.
+                // Only this precise 1280x720-style TV layout gets fallback.
+                const legacy720Viewport=viewportW>=1200&&viewportW<=1300 &&
+                    viewportH>=675&&viewportH<=750 &&
+                    Math.abs(viewportW/viewportH-16/9)<0.06
+                const physicalScaleFallback=topLevel&&scaleMode==='physical' &&
+                    legacy720Viewport && screenW/viewportW<=1.05 &&
+                    screenH/viewportH<=1.05
+                const effectiveScreenW=physicalScaleFallback?Math.round(viewportW*1.5):screenW
+                const effectiveScreenH=physicalScaleFallback?Math.round(viewportH*1.5):screenH
+                const ratioW=Math.max(1,Math.min(2.5,effectiveScreenW/viewportW))
+                const ratioH=Math.max(1,Math.min(2.5,effectiveScreenH/viewportH))
                 const physical=topLevel&&scaleMode==='physical'&&ratioW>1.05&&ratioH>1.05
                 const transform=topLevel&&scaleMode==='transform'&&ratioW>1.05&&ratioH>1.05
                 videoElement.style.setProperty('display','block','important')
                 videoElement.style.setProperty('position','absolute','important')
                 videoElement.style.setProperty('top','0','important')
                 videoElement.style.setProperty('left','0','important')
-                videoElement.style.setProperty('width',physical?Math.round(screenW)+'px':'100%','important')
-                videoElement.style.setProperty('height',physical?Math.round(screenH)+'px':'100%','important')
+                videoElement.style.setProperty('width',physical?Math.round(effectiveScreenW)+'px':'100%','important')
+                videoElement.style.setProperty('height',physical?Math.round(effectiveScreenH)+'px':'100%','important')
                 videoElement.style.setProperty('max-width','none','important')
                 videoElement.style.setProperty('max-height','none','important')
                 videoElement.style.setProperty('object-fit','contain','important')
@@ -125,6 +136,7 @@ export default class VideoComponent {
                     'scale('+ratioW.toFixed(3)+','+ratioH.toFixed(3)+')':'none','important')
                 videoElement.style.setProperty('transform-origin','left top','important')
                 videoElement.setAttribute('data-xbridge-scale-mode',scaleMode)
+                videoElement.setAttribute('data-xbridge-physical-fallback',physicalScaleFallback?'1':'0')
                 if(dedicatedNativeTvMode && topLevel){
                     // VIDAA can paint the native overlay in physical pixels.
                     // Clipping this 1920px surface inside the 1280px CSS host
@@ -251,7 +263,7 @@ export default class VideoComponent {
                 window.parent.postMessage({type:'xbridge-video-prepared',
                     topLevel,prebound:true,pipeline:dedicatedNativeTvMode?'native-tv':renderPath,
                     scale:videoElement.getAttribute('data-xbridge-scale-mode')||'unknown',
-                    rendererVersion:'vidaa-scale-v2'},location.origin)
+                    rendererVersion:'vidaa-fhd-prebind-v4'},location.origin)
             } catch (_) {}
         }
         // CSS pixels and the native video decoder can use different viewports
@@ -289,7 +301,7 @@ export default class VideoComponent {
                     topLevel,renderPath:iframeNativeMode?'iframe':'parent',
                     pipeline:dedicatedNativeTvMode&&topLevel?'native-tv':renderPath,
                     scale:videoElement.getAttribute('data-xbridge-scale-mode')||'unknown',
-                    rendererVersion:legacyParentGeometry?'oct22-parent-v3':'vidaa-scale-v2'},location.origin)
+                    rendererVersion:legacyParentGeometry?'vidaa-fhd-prebind-v4':'vidaa-scale-v2'},location.origin)
             } catch (_) {}
         }
         // VIDAA may block autoplay despite muted inline video; the user can
