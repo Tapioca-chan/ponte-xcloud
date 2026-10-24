@@ -24,7 +24,8 @@ export class PresentationStallWatch {
   const current={now,decoded:count(decoded),rendered:count(rendered),received:count(received)};
   if(!active||!ready||paused||overlay||!Number.isFinite(now)||
      current.decoded===null||current.rendered===null||current.received===null){
-   this.previous=null;this.stallStartAt=0;this.stalledPolls=0;
+   this.previous=null;this.observedRendering=false;
+   this.stallStartAt=0;this.stalledPolls=0;
    this.keyframeRequestedForStall=false;
    return status('none','not-observable');
   }
@@ -32,9 +33,11 @@ export class PresentationStallWatch {
   this.previous=current;
   if(!prev||now<=prev.now||now-prev.now>20000||
      current.decoded<prev.decoded||current.rendered<prev.rendered||current.received<prev.received){
-   // A native-surface replacement resets renderer counters to 0; require
-   // fresh proof of real presentation before triggering another rescue.
-   if(prev && current.rendered<prev.rendered)this.observedRendering=false;
+   // A native-surface replacement, missing polls, or an unexpected counter
+   // rollback invalidates earlier proof of reliable compositor callbacks.
+   // Demand fresh positive render progress from this exact video surface.
+   if(!prev || now-prev.now>20000 || current.rendered<prev.rendered)
+    this.observedRendering=false;
    this.stallStartAt=0;this.stalledPolls=0;
    this.keyframeRequestedForStall=false;
    return status('none','baseline');
