@@ -28,7 +28,10 @@ export class ManualVideoRescue {
     if(this.inFlight||!['surface','transport'].includes(action))return false;
     this.inFlight=true;
     if(action==='surface')this.lastSurfaceAt=now;
-    if(action==='transport')this.lastTransportAt=now;
+    if(action==='transport'){
+      this.lastTransportAt=now;
+      this.lastSurfaceAt=0; // next manual cycle starts with a non-destructive surface swap
+    }
     return true;
   }
   finish(){this.inFlight=false;}
