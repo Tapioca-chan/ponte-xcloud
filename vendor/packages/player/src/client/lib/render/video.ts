@@ -88,10 +88,16 @@ export default class VideoComponent {
                 const screenW=Number(root.screen?.width)||viewportW
                 const screenH=Number(root.screen?.height)||viewportH
                 const scaleMode=root.localStorage.getItem('xbridge:video-plane-scale')||'physical'
-                // The dedicated TV pipeline uses physical pixels regardless
-                // of legacy CSS-scale selections, exclusively at first mount.
-                const physical=topLevel&&(dedicatedNativeTvMode||scaleMode==='physical')&&
-                    screenW/viewportW>1.05&&screenH/viewportH>1.05
+                // A VIDAA browser can expose 1280x720 CSS pixels on a
+                // 1920x1080 physical panel. Our first native-tv implementation
+                // *ignored* the selected transform/css mode and always forced
+                // 1920px dimensions. That made the TV scaling A/B useless.
+                // Compute geometry ONCE, before attaching srcObject, to avoid
+                // a live native-overlay realloc/black flash.
+                const ratioW=Math.max(1,Math.min(2.5,screenW/viewportW))
+                const ratioH=Math.max(1,Math.min(2.5,screenH/viewportH))
+                const physical=topLevel&&scaleMode==='physical'&&ratioW>1.05&&ratioH>1.05
+                const transform=topLevel&&scaleMode==='transform'&&ratioW>1.05&&ratioH>1.05
                 videoElement.style.setProperty('display','block','important')
                 videoElement.style.setProperty('position','absolute','important')
                 videoElement.style.setProperty('top','0','important')
@@ -102,7 +108,10 @@ export default class VideoComponent {
                 videoElement.style.setProperty('max-height','none','important')
                 videoElement.style.setProperty('object-fit','contain','important')
                 videoElement.style.setProperty('object-position',iframeNativeMode?'center center':'left top','important')
-                videoElement.style.setProperty('transform','none','important')
+                videoElement.style.setProperty('transform',transform?
+                    'scale('+ratioW.toFixed(3)+','+ratioH.toFixed(3)+')':'none','important')
+                videoElement.style.setProperty('transform-origin','left top','important')
+                videoElement.setAttribute('data-xbridge-scale-mode',scaleMode)
             } catch (_) {}
         }
         // Presentation counter is updated by the browser's compositor callback,
