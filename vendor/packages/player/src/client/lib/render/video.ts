@@ -22,8 +22,10 @@ export default class VideoComponent {
         let host:HTMLElement|null = null
         let renderDocument:Document = document
         let topLevel = false
+        const iframeNativeMode=(this._player as any).__xbridgeVideoHostMode==='iframe'
+            && window.parent!==window
         try {
-            if (window.parent !== window && window.parent.location.origin === window.location.origin) {
+            if (!iframeNativeMode && window.parent !== window && window.parent.location.origin === window.location.origin) {
                 const candidate = window.parent.document.getElementById('xbridge-top-video')
                 if (candidate) {
                     host = candidate
@@ -40,7 +42,11 @@ export default class VideoComponent {
         // at whatever layout size is present on the first frame. Late physical
         // resizing after the xCloud preroll can leave a stale visible plane.
         // This never detaches a frame or modifies Microsoft/Xbox handshakes.
-        const nativePlanePreflight = topLevel && Boolean((this._player as any).__xbridgePreallocateVideaSurface)
+        // Diagnostic native mode: RTCPeerConnection and HTMLVideoElement live
+        // in the SAME document. Unlike parent-hoisted mode it does not pass
+        // a MediaStream between VIDAA browser document/compositor contexts.
+        const nativePlanePreflight = (topLevel||iframeNativeMode) &&
+            Boolean((this._player as any).__xbridgePreallocateVideaSurface)
         if(!nativePlanePreflight) videoElement.srcObject = stream
         videoElement.autoplay = true
         videoElement.muted = true
@@ -62,7 +68,7 @@ export default class VideoComponent {
                 const screenW=Number(root.screen?.width)||viewportW
                 const screenH=Number(root.screen?.height)||viewportH
                 const scaleMode=root.localStorage.getItem('xbridge:video-plane-scale')||'physical'
-                const physical=scaleMode==='physical'&&screenW/viewportW>1.05&&screenH/viewportH>1.05
+                const physical=topLevel&&scaleMode==='physical'&&screenW/viewportW>1.05&&screenH/viewportH>1.05
                 videoElement.style.setProperty('display','block','important')
                 videoElement.style.setProperty('position','absolute','important')
                 videoElement.style.setProperty('top','0','important')
@@ -72,7 +78,7 @@ export default class VideoComponent {
                 videoElement.style.setProperty('max-width','none','important')
                 videoElement.style.setProperty('max-height','none','important')
                 videoElement.style.setProperty('object-fit','contain','important')
-                videoElement.style.setProperty('object-position','left top','important')
+                videoElement.style.setProperty('object-position',iframeNativeMode?'center center':'left top','important')
             } catch (_) {}
         }
         // Presentation counter is updated by the browser's compositor callback,
@@ -190,9 +196,10 @@ export default class VideoComponent {
         videoElement.addEventListener('loadeddata', () => {
             setTimeout(reportGeometry, 650)
         }, {once:true})
-        if(topLevel) {
+        if(topLevel || iframeNativeMode) {
             try {
-                window.parent.postMessage({type:'xbridge-video-attached',topLevel:true},location.origin)
+                window.parent.postMessage({type:'xbridge-video-attached',
+                    topLevel,renderPath:iframeNativeMode?'iframe':'parent'},location.origin)
             } catch (_) {}
         }
         // VIDAA may block autoplay despite muted inline video; the user can
