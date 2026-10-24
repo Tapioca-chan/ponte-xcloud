@@ -19,10 +19,19 @@ test('dedicated VIDAA video host is full-bleed before binding the MediaStream',(
  assert.match(video,/host\?\.style\.setProperty\('inset','0','important'\)/);
  assert.match(video,/host\?\.style\.setProperty\('width','100vw','important'\)/);
  assert.match(video,/host\?\.style\.setProperty\('height','100vh','important'\)/);
- assert.match(video,/dedicatedNativeTvMode\|\|scaleMode==='physical'/);
+ assert.match(video,/topLevel&&scaleMode==='physical'/);
+ assert.match(video,/topLevel&&scaleMode==='transform'/);
+ assert.match(video,/host\?\.style\.setProperty\('overflow',scaleMode==='css'\?'hidden':'visible','important'\)/);
+ assert.match(video,/rendererVersion:'vidaa-scale-v2'/);
 });
 test('native pipeline does not use experimental GPU canvas or modify Xbox controls',()=>{
  assert.match(video,/const videoElement = renderDocument\.createElement\('video'\)/);
  assert.doesNotMatch(video,/navigator\.gpu\.requestAdapter\(/);
  assert.match(client,/player\.init\(\)/);
+});
+
+test('legacy physical scale is not imposed over the selected transform or CSS mode',()=>{
+ assert.doesNotMatch(video,/dedicatedNativeTvMode\|\|scaleMode==='physical'/);
+ assert.match(video,/videoElement\.setAttribute\('data-xbridge-scale-mode',scaleMode\)/);
+ assert.match(video,/transform-origin','left top'/);
 });
