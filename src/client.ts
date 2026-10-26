@@ -1804,6 +1804,7 @@ if (embedded) {
      $('xb-resume-retry').hidden=false;
      dashboard.error('Limite temporário HTTP 429. Sua conta Xbox continua salva. Aguarde um minuto e selecione Restaurar sessão.');
      status('O serviço limitou novas tentativas. Sua conta Xbox permanece salva.');
+     notifyParent({type:'xbridge-auth-action-required',reason:'rate_limited'});
      return;
     }
    }
@@ -1819,6 +1820,7 @@ if (embedded) {
     $('xb-resume-retry').hidden=false;
     dashboard.error('O servidor atingiu um limite temporário (HTTP 429). Aguarde cerca de um minuto e selecione Restaurar sessão.');
     status('Limite temporário de salas. Não é necessário autorizar a Microsoft novamente.');
+    notifyParent({type:'xbridge-auth-action-required',reason:'rate_limited'});
     return;
    }
    throw error;
@@ -1829,11 +1831,13 @@ if (embedded) {
    $('xb-resume-retry').hidden=true;
    status('Este navegador não apresentou uma sessão Xbox válida. Autorize sua conta para vinculá-lo.');
    $('xb-login-feedback').textContent='Não foi encontrado um cookie de sessão válido. Após autenticar, o xBridge salvará a conta.';
+   notifyParent({type:'xbridge-auth-action-required',reason:'login_required'});
   }else{
    $('xb-resume-retry').hidden=false;
    $('login').textContent='Autorizar novamente (somente se necessário)';
    status('Não foi possível consultar a sessão Xbox. Sua autorização não foi apagada.');
    $('xb-login-feedback').textContent='Falha temporária do servidor Xbox ou MongoDB. Sua autorização não foi apagada. Tente Restaurar sessão salva novamente antes de fazer outro login Microsoft.';
+   notifyParent({type:'xbridge-auth-action-required',reason:'restore_retry'});
   }
  });
  void prepare();
