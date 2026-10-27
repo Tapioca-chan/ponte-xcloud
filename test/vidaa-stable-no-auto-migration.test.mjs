@@ -18,6 +18,6 @@ test('Metro retains non-disruptive keyframes and explicit user rescue without si
  assert.match(client,/const opaqueRepairEnabled=false;/);
  assert.match(client,/const nativeRefreshEnabled=false;/);
  assert.match(client,/requestKeyframeRequest\(true\)/);
- assert.match(client,/type:'xbridge-rescue-video'/);
+ assert.match(client,/event\.data\?\.type==='xbridge-rescue-video'/);
  assert.match(client,/migrateNativeVideoHostWithEvidence\(\)/);
 });
