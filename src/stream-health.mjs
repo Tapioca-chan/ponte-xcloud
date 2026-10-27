@@ -9,7 +9,10 @@ export function classifyStreamHealth(previous,current,seconds=6){
  const width=Number(current.videoWidth)||0,height=Number(current.videoHeight)||0;
  const presentedBefore=Number.isFinite(previous.presented)?Number(previous.presented):null;
  const presentedNow=Number.isFinite(current.presented)?Number(current.presented):null;
- const presentationMeasured=presentedBefore!==null&&presentedNow!==null;
+ // Some VIDAA browsers expose a permanent zero framesRendered stub.
+ // Only claim display stalls after this same counter has shown real progress.
+ const presentationMeasured=presentedBefore!==null&&presentedNow!==null&&
+   (presentedBefore>0||presentedNow>0);
  if(decodedNow>decodedBefore){
   if(presentationMeasured&&presentedNow===presentedBefore){
    return {kind:'presentation-stall',reason:'O Xbox envia quadros, mas o navegador não apresenta imagens novas',decoded:decodedNow-decodedBefore,presented:0,width,height};

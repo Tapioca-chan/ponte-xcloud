@@ -70,6 +70,9 @@ function canAutoInterruptVideo(){
 }
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let smoothnessPrevious:any=null;
+let previouslyRenderedFrames:number|null=null;
+let renderedCounterVerified=false;
+let renderPollAt=0;
 const adaptiveVideoPlayout=new AdaptiveVideoPlayout();
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
 let lastStrongVideoRebindAt=0;
@@ -139,6 +142,7 @@ function stopVideoHealth(){
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  lastSoftRecoveryAt=0;lastSoftFreezeCount=null;currentVideoFreezeCount=null;
  smoothnessPrevious=null;adaptiveVideoPlayout.reset();
+ previouslyRenderedFrames=null;renderedCounterVerified=false;renderPollAt=0;
  lastStrongVideoRebindAt=0;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
@@ -654,8 +658,23 @@ function startVideoHealth(){
    // strong evidence of successful presentation.
    const statsRendered=Number.isFinite(inbound.framesRendered)?
      Number(inbound.framesRendered):null;
-   const presented=statsRendered!==null?statsRendered:
-     (typeof media?.requestVideoFrameCallback==='function'?compositorFrames:null);
+   // VIDAA's older browser returns framesRendered=0 through actual gameplay.
+   // This is an unavailable counter, NOT proof that the screen is frozen.
+   const nowStats=Date.now();
+   const formerRendered=previouslyRenderedFrames;
+   const formerPoll=renderPollAt;
+   if(statsRendered!==null&&formerRendered!==null){
+     if(statsRendered>formerRendered)renderedCounterVerified=true;
+     else if(statsRendered<formerRendered)renderedCounterVerified=false;
+   }
+   previouslyRenderedFrames=statsRendered;
+   renderPollAt=nowStats;
+   const rvfcRendered=typeof media?.requestVideoFrameCallback==='function'&&compositorFrames>0?
+     compositorFrames:null;
+   const presented=renderedCounterVerified?statsRendered:rvfcRendered;
+   const renderFps=renderedCounterVerified&&statsRendered!==null&&formerRendered!==null&&
+     Number.isFinite(formerPoll)&&nowStats-formerPoll>=1000&&statsRendered>=formerRendered?
+       Math.round((statsRendered-formerRendered)*100000/(nowStats-formerPoll))/100:null;
    const sample={
     decoded:Number(inbound.framesDecoded)||0,
     received:Number(inbound.packetsReceived)||0,
@@ -686,6 +705,16 @@ function startVideoHealth(){
     jitterBufferEmittedCount:inbound.jitterBufferEmittedCount,jitterBufferDelay:inbound.jitterBufferDelay,
     freezeCount:inbound.freezeCount};
    const result=classifyStreamHealth(healthPrevious,sample,6);
+   // Only aggregated RTT is reported: no ICE candidates, remote IPs or URLs.
+   let rttMs:number|null=null;
+   try{
+     const records=Array.from(stats.values()) as any[];
+     const transport=records.find(x=>x.type==='transport'&&x.selectedCandidatePairId);
+     const pair=transport?stats.get(transport.selectedCandidatePairId) as any:
+       records.find(x=>x.type==='candidate-pair'&&x.state==='succeeded'&&x.nominated);
+     if(Number.isFinite(pair?.currentRoundTripTime)&&pair.currentRoundTripTime>=0)
+       rttMs=Math.round(pair.currentRoundTripTime*1000);
+   }catch(_){}
    // Video-specific stalls may hide from the native VIDAA visual sampler,
    // but audio packets prove that the wider cloud stream is still alive.
    const audioProgress=classifyAudioVideoStall(healthPrevious,sample);
@@ -711,7 +740,9 @@ function startVideoHealth(){
     smoothness:{fps:smoothness.metrics.fps,jitterMs:smoothness.metrics.jitterMs,
       lossPct:smoothness.metrics.lossPct,decodeMs:smoothness.metrics.decodeMs,
       bufferMs:smoothness.metrics.bufferMs,cause:smoothness.metrics.cause,
-      bufferMode:playout.mode,bufferTargetMs:playout.targetMs},
+      bufferMode:playout.mode,bufferTargetMs:playout.targetMs,
+      renderFps,renderMeasured:presented!==null,roundTripMs:rttMs,
+      newFreezes:smoothness.metrics.newFreezes,newDropped:smoothness.metrics.newDropped},
      input:{...controller,packetsInWindow:inputPacketsInWindow}});
    const now=Date.now();
    const isMetro=needsXboxDialogCompatibility(launchedStreamingTitle);
