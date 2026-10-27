@@ -36,7 +36,7 @@ test('Uses authorized XSTS token only in server requests; not returned to UI',as
 });
 test('Xbox permission errors do not revoke the current Microsoft game login',async()=>{
  const request=async()=>({ok:false,status:403});
- const result=await readXboxLiveAccount(token,{request});
+ const result=await readXboxLiveAccount(token,{request,titleId:'2064168993'});
  assert.equal(result.ok,false);
  assert.equal(result.achievementsCode,'xbox_permission');
 });
