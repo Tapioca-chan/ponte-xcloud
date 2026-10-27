@@ -36,7 +36,7 @@ test('Only supported browsers receive a capped non-destructive jitter buffer aft
  const bad={cause:'network',networkTrouble:true,decoderTrouble:false,jitterMs:60,lossPct:7,fps:50};
  assert.equal(t.observe(bad,p,1000).targetMs,0);
  const changed=t.observe(bad,p,7500);
- assert.equal(changed.targetMs,90);
+ assert.equal(changed.targetMs,120);
  assert.equal(receiver.jitterBufferTarget,90);
  const good={cause:'stable-or-unknown',networkTrouble:false,decoderTrouble:false,fps:60};
  for(let i=0;i<4;i++)t.observe(good,p,15000+i*6500);
@@ -49,4 +49,14 @@ test('Blank or unsupported stats never manufacture packet loss or latency',()=>{
  const m=measureSmoothness(null,{framesDecoded:0,packetsReceived:0},Date.now()).metrics;
  assert.equal(m.lossPct,null);assert.equal(m.decodeMs,null);
  assert.equal(m.networkTrouble,false);
+});
+
+test('A burst of VIDAA 68ms jitter and repeated RTC freezes is stabilized after one verified window',()=>{
+ const tuner=new AdaptiveVideoPlayout();
+ const receiver={track:{kind:'video'},jitterBufferTarget:0};
+ const result=tuner.observe({cause:'network',networkTrouble:true,decoderTrouble:false,
+  jitterMs:68,lossPct:0,newFreezes:3,fps:55},{getReceivers:()=>[receiver]},7000);
+ assert.equal(result.mode,'network-buffered');
+ assert.equal(result.targetMs,135);
+ assert.equal(receiver.jitterBufferTarget,135);
 });
