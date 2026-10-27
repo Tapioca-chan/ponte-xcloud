@@ -69,3 +69,30 @@ test('Missing verified Xbox TitleId NEVER mixes account achievements with active
  assert.equal(result.achievements,null);
  assert.equal(result.achievementsCode,'game_title_id_missing');
 });
+
+test('Fetches locked achievements, explicitly not unlocked-only, and uses only real requirement progress',async()=>{
+ const called=[];
+ const request=async(url)=>{
+  called.push(url);
+  return {ok:true,json:async()=>url.includes('profile')?
+   {profileUsers:[{settings:[]}]}:
+   {achievements:[
+    {id:'11',progressState:'InProgress',name:'Win battles',
+     progression:{requirements:[{current:'4',target:'10'}]}},
+    {id:'12',progressState:'NotStarted',name:'Collect coins',
+     progression:{requirements:[{current:null,target:null}]}},
+    {id:'13',progressState:'Achieved',name:'Completed'}
+   ],pagingInfo:{totalRecords:3}}};
+ };
+ const result=await readXboxLiveAccount(token,{request,titleId:'2064168993'});
+ assert.equal(result.achievements.unlockedCount,1);
+ assert.equal(result.achievements.pendingCount,2);
+ assert.equal(result.achievements.achievements[0].progressPercent,40);
+ assert.equal(result.achievements.achievements[0].progressCurrent,4);
+ assert.equal(result.achievements.achievements[0].progressTarget,10);
+ assert.equal(result.achievements.achievements[1].progressPercent,null);
+ assert.equal(result.achievements.achievements[1].progressCurrent,null);
+ assert.equal(result.achievements.achievements[1].progressState,'NotStarted');
+ assert.match(called[1],/unlockedOnly=false/);
+ assert.match(called[1],/possibleOnly=false/);
+});
