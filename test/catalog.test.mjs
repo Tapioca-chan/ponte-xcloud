@@ -30,3 +30,11 @@ test('Cloud entitlement never claims an actual purchase, and missing state stays
  assert.equal(gameCard({...title,details:{...title.details,hasEntitlement:true}},null).accessible,true);
  assert.equal(gameCard({...title,details:{...title.details,hasEntitlement:false}},null).accessible,false);
 });
+
+test('Official Xbox achievement TitleId stays distinct from cloud streaming ID',()=>{
+ const card=gameCard({titleId:'AGEOFEMPIRESIIDEFINITIVEEDITION',details:{
+  xboxTitleId:2064168993,productId:'9N2Z748SPMTM'}},null);
+ assert.equal(card.titleId,'AGEOFEMPIRESIIDEFINITIVEEDITION');
+ assert.equal(card.xboxTitleId,'2064168993');
+ assert.equal(gameCard({titleId:'UNKNOWN',details:{xboxTitleId:'fake-id'}},null).xboxTitleId,'');
+});
