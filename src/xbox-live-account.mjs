@@ -37,21 +37,31 @@ export function summarizeXboxAchievements(payload,filterTitleId=''){
   const associate=Array.isArray(x?.titleAssociations)?x.titleAssociations.find(t=>t?.name):null;
   const requirements=Array.isArray(x?.progression?.requirements)?x.progression.requirements:[];
   const progressNumbers=requirements.length===1?requirements[0]:null;
-  const current=Number(progressNumbers?.current),target=Number(progressNumbers?.target);
-  const progressPercent=unlocked?100:(progressNumbers && Number.isFinite(current)&&
-   Number.isFinite(target)&&target>0?Math.max(0,Math.min(100,Math.round(current/target*100))):null);
+  const validNumber=value=>value!==null&&value!==undefined&&value!==''&&
+   Number.isFinite(Number(value))&&Number(value)>=0;
+  const hasFraction=progressNumbers&&validNumber(progressNumbers.current)&&
+   validNumber(progressNumbers.target)&&Number(progressNumbers.target)>0;
+  const current=hasFraction?Number(progressNumbers.current):null;
+  const target=hasFraction?Number(progressNumbers.target):null;
+  const percentRaw=x?.progression?.percentComplete;
+  const statedPercent=validNumber(percentRaw)&&Number(percentRaw)<=100?Number(percentRaw):null;
+  const progressPercent=unlocked?100:hasFraction?
+   Math.max(0,Math.min(100,Math.round(current/target*100))):statedPercent;
+  const progressState=unlocked?'Achieved':x?.progressState==='InProgress'?'InProgress':'NotStarted';
   return {id:short(x?.id,100),titleId:validXboxTitleId(associate?.id)||filterTitleId,
    gameName:short(associate?.name,120),
    name:secret?'Conquista secreta':short(x?.name,180),
    description:short(secret?x?.lockedDescription:x?.description,240),
    unlocked,points,icon:secret?null:xboxAchievementImage(media?.url),
-   progressPercent,unlockedAt:unlocked?short(x?.progression?.timeUnlocked,48):''};
+   progressPercent,progressCurrent:current,progressTarget:target,progressState,
+    unlockedAt:unlocked?short(x?.progression?.timeUnlocked,48):''};
  });
  const declared=Number(data.pagingInfo?.totalRecords);
  const total=Number.isSafeInteger(declared)&&declared>=records.length?declared:records.length;
  return {source:'xbox-live',scope:filterTitleId?'game':'account',
   titleId:filterTitleId||null,gameName:filterTitleId?(records.find(r=>r.gameName)?.gameName||''):null,
   achievements:records,unlockedCount:records.filter(x=>x.unlocked).length,
+   pendingCount:records.filter(x=>!x.unlocked).length,
   shownCount:records.length,totalCount:total,partial:total>records.length||
    Boolean(data.pagingInfo?.continuationToken),
   gamerscoreShown:records.reduce((sum,x)=>sum+(x.unlocked?x.points||0:0),0),
@@ -103,6 +113,9 @@ async function requestAchievements(auth,headers,titleId,request){
   const url=new URL('https://achievements.xboxlive.com/users/xuid('+auth.xuid+')/achievements');
   url.searchParams.set('maxItems','100');url.searchParams.set('orderBy','Title');
   url.searchParams.set('titleId',titleId);
+   // Explicitly request locked achievements and their server-tracked progress.
+   url.searchParams.set('unlockedOnly','false');
+   url.searchParams.set('possibleOnly','false');
   if(continuation)url.searchParams.set('continuationToken',continuation);
   const response=await request(url.href,{method:'GET',redirect:'error',signal:AbortSignal.timeout(12000),headers});
   if(!response.ok)return {achievements:null,code:response.status===401||response.status===403?
@@ -120,6 +133,7 @@ async function requestAchievements(auth,headers,titleId,request){
  const combined={source:'xbox-live',scope:'game',titleId,
   gameName:all.find(r=>r.gameName)?.gameName||'',
   achievements:all.slice(0,300),unlockedCount:all.filter(a=>a.unlocked).length,
+  pendingCount:all.filter(a=>!a.unlocked).length,
   shownCount:all.length,totalCount:Math.max(totalRecords,all.length),
   partial:more||totalRecords>all.length,
   gamerscoreShown:all.reduce((n,a)=>n+(a.unlocked?a.points||0:0),0),
