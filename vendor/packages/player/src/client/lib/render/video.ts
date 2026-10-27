@@ -435,6 +435,13 @@ export default class VideoComponent {
         if(!old || !oldHost || !stream || !old.isConnected ||
             (current!=='iframe' && current!=='parent') ||
             window.parent===window)return null
+        // Field report on Toshiba: a working parent video became a small
+        // upper-left hardware plane immediately after crossing into the
+        // iframe. The iframe can receive frames but VIDAA fails to size its
+        // native decoder overlay to the television. Never allow this
+        // destructive parent->iframe migration on an active game.
+        // The reverse iframe->parent recovery remains available.
+        if(current==='parent')return null
         let target:HTMLElement|null=null
         let targetDocument:Document=document
         const next=current==='iframe'?'parent':'iframe'
@@ -468,7 +475,31 @@ export default class VideoComponent {
         replacement.style.setProperty('max-width','none','important')
         replacement.style.setProperty('max-height','none','important')
         replacement.style.setProperty('object-fit','contain','important')
-        replacement.style.setProperty('object-position','center center','important')
+        replacement.style.setProperty('object-position',next==='parent'?'left top':'center center','important')
+        if(next==='parent'){
+            // A newly migrated parent plane must be physically sized BEFORE
+            // attaching srcObject, just like create(). 100% used here loses
+            // the VIDAA 1280x720 -> 1920x1080 native-plane compensation.
+            try{
+                const screen=window.parent
+                const viewW=Math.max(1,screen.innerWidth),viewH=Math.max(1,screen.innerHeight)
+                const screenW=Number(screen.screen?.width)||viewW
+                const screenH=Number(screen.screen?.height)||viewH
+                const physical=screen.localStorage.getItem('xbridge:video-plane-scale')==='physical'
+                const knownVidea=viewW>=1200&&viewW<=1300&&viewH>=675&&viewH<=750 &&
+                    Math.abs(viewW/viewH-16/9)<0.06
+                const scaleFallback=physical&&knownVidea&&screenW/viewW<=1.05&&screenH/viewH<=1.05
+                const targetW=scaleFallback?Math.round(viewW*1.5):screenW
+                const targetH=scaleFallback?Math.round(viewH*1.5):screenH
+                if(physical&&targetW/viewW>1.05&&targetH/viewH>1.05){
+                    replacement.style.setProperty('width',Math.round(targetW)+'px','important')
+                    replacement.style.setProperty('height',Math.round(targetH)+'px','important')
+                    replacement.style.setProperty('transform','none','important')
+                }
+                replacement.setAttribute('data-xbridge-scale-mode',physical?'physical':'css')
+                target?.style.setProperty('overflow','visible','important')
+            }catch(_){}
+        }
         replacement.style.pointerEvents='none'
         if(next==='parent')replacement.setAttribute('data-xbridge-top-video','1')
         replacement.__xbridgePresentedFrames=0
