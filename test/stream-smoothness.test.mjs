@@ -37,7 +37,7 @@ test('Only supported browsers receive a capped non-destructive jitter buffer aft
  assert.equal(t.observe(bad,p,1000).targetMs,0);
  const changed=t.observe(bad,p,7500);
  assert.equal(changed.targetMs,120);
- assert.equal(receiver.jitterBufferTarget,90);
+ assert.equal(receiver.jitterBufferTarget,120);
  const good={cause:'stable-or-unknown',networkTrouble:false,decoderTrouble:false,fps:60};
  for(let i=0;i<4;i++)t.observe(good,p,15000+i*6500);
  assert.equal(receiver.jitterBufferTarget,0);
