@@ -176,7 +176,7 @@ const server=http.createServer(async(req,res)=>{
     // Does not refresh tokens or interrupt an ongoing WebRTC session.
     if(!room.user||!room.token){reply(res,401,{ok:false,code:'microsoft_not_linked'});return;}
     const expiresAt=Date.parse(String(room.user.expires_on||''));
-    if(Number.isFinite(expiresAt)&&expiresAt<=Date.now()+60000){
+    if(!Number.isFinite(expiresAt)||expiresAt<=Date.now()+60000){
      reply(res,401,{ok:false,code:'microsoft_token_expired'});return;
     }
     const titleId=/^\d{1,12}$/.test(String(body.titleId||''))?String(body.titleId):'';
