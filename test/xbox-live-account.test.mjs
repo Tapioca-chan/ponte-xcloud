@@ -40,3 +40,32 @@ test('Xbox permission errors do not revoke the current Microsoft game login',asy
  assert.equal(result.ok,false);
  assert.equal(result.achievementsCode,'xbox_permission');
 });
+
+test('Achievement art keeps legitimate HTTPS Xbox assets, no spoofed hosts',async()=>{
+ const {xboxAchievementImage}=await import('../src/xbox-live-account.mjs');
+ assert.equal(xboxAchievementImage('http://images-eds.xboxlive.com/0/a.png'),
+  'https://images-eds.xboxlive.com/0/a.png');
+ assert.equal(xboxAchievementImage('https://xboxlive.com.attacker.com/image'),null);
+ const shown=summarizeXboxAchievements({achievements:[{
+  id:'12',titleAssociations:[{id:2064168993,name:'Game from Xbox'}],
+  mediaAssets:[{type:'Icon',url:'http://images-eds.xboxlive.com/asset.png'}],
+  name:'True Icon',progressState:'Achieved',isSecret:true,
+  progression:{timeUnlocked:'2026-10-27T13:00:00Z'}
+ }]},'2064168993');
+ assert.equal(shown.achievements[0].icon,'https://images-eds.xboxlive.com/asset.png');
+ assert.equal(shown.gameName,'Game from Xbox');
+ assert.equal(shown.achievements[0].unlockedAt,'2026-10-27T13:00:00Z');
+ const secret=summarizeXboxAchievements({achievements:[{
+  id:'13',name:'Mystery',isSecret:true,progressState:'NotStarted',
+  mediaAssets:[{type:'Icon',url:'https://xbox.com/secret.png'}]
+ }]},'2064168993');
+ assert.equal(secret.achievements[0].icon,null);
+});
+test('Missing verified Xbox TitleId NEVER mixes account achievements with active game',async()=>{
+ let calls=0;
+ const request=async()=>{calls++;return {ok:true,status:200,json:async()=>({profileUsers:[{settings:[]}]})}};
+ const result=await readXboxLiveAccount(token,{request,titleId:''});
+ assert.equal(calls,1);
+ assert.equal(result.achievements,null);
+ assert.equal(result.achievementsCode,'game_title_id_missing');
+});
