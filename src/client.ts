@@ -60,11 +60,12 @@ function startIdleMonitor(){
  },15000);
 }
 function canAutoInterruptVideo(){
- // Old aggressive Metro heuristics can cause black flashes. Keep them
- // opt-in AND mutually exclusive with the default safe renderer policy.
- // Never let a previously saved legacy setting undermine no-flash mode.
- try{return localStorage.getItem('xbridge:video-auto-repair')==='true' &&
-   localStorage.getItem('xbridge:vidaa-renderer-repair')==='false'}catch{return false}
+ // Video-plane/HTMLVideoElement/stream rebind can turn a healthy full-screen
+ // Xbox stream into the small top-left VIDAA overlay after a transition.
+ // Disable ALL automatic destructive repairs for this affected TV release,
+ // even when an old localStorage opt-in remained enabled. Keep automatic
+ // zero-flash keyframe requests and explicit user-triggered manual rescue.
+ return false;
 }
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
@@ -1096,8 +1097,9 @@ function startVideoHealth(){
    // A soft recovery can resolve most cases, but HTMLMediaElement.play()
    // cannot confirm that VIDAA painted a frame. One bounded, optional
    // strong escalation follows when visibility remains unobservable.
-   let opaqueRepairEnabled=true;
-   try{opaqueRepairEnabled=localStorage.getItem('xbridge:metro-opaque-autorepair')!=='false';}catch(_){}
+   // No unsolicited Metro video-element replacement after preroll/ad
+   // transitions. The renderer cannot inspect the physical VIDAA plane.
+   const opaqueRepairEnabled=false;
    const opaqueRepair={
     title:launchedStreamingTitle,
     nativePlaneUnobservable:nativeBlind,
@@ -1242,8 +1244,8 @@ function startVideoHealth(){
    // Rebind sparingly as maintenance, after a generous free-tier ad grace.
    // OFF by default: periodic srcObject reattachments themselves produce a
    // black flash and might be mistaken for the original game freeze.
-   let nativeRefreshEnabled=false;
-   try{nativeRefreshEnabled=localStorage.getItem('xbridge:metro-native-refresh')==='true';}catch(_){}
+   // Old experimental native-refresh flag may be persisted on the TV.
+   const nativeRefreshEnabled=false;
    if(isMetro && opaqueRepairEnabled && canAutoInterruptVideo() &&
       !protectRecoveredMetroSurface() && shouldPerformBlindMetroRefresh({
     title:launchedStreamingTitle,enabled:nativeRefreshEnabled,
