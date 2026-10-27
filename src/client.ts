@@ -20,6 +20,7 @@ import {EarlyFreezeRiseWatch} from './vidaa-early-freeze.mjs';
 import {MetroStartupKeyframePreflight} from './metro-startup-keyframe.mjs';
 import {shouldAutoRepairAfterVideoEvidence} from './ongoing-recovery-policy.mjs';
 import {decoderSummary} from './decoder-health.mjs';
+import {measureSmoothness,AdaptiveVideoPlayout} from './stream-smoothness.mjs';
 import {compareFreezeEvidence} from './freeze-evidence.mjs';
 import {ManualVideoRescue} from './manual-video-rescue.mjs';
 const playerParams=new URLSearchParams(location.search);
@@ -68,6 +69,8 @@ function canAutoInterruptVideo(){
  return false;
 }
 let videoHealthTimer:any=null,healthPrevious:any=null,freezeChecks=0,audioVideoStallChecks=0;
+let smoothnessPrevious:any=null;
+const adaptiveVideoPlayout=new AdaptiveVideoPlayout();
 let lastSoftRecoveryAt=0,lastSoftFreezeCount:number|null=null,currentVideoFreezeCount:number|null=null;
 let lastStrongVideoRebindAt=0;
 let lastMeaningfulGamepadAt=0,visualWatchdog:VideoFreezeWatchdog|null=null;
@@ -135,6 +138,7 @@ function stopVideoHealth(){
  if(videoHealthTimer)clearInterval(videoHealthTimer);
  videoHealthTimer=null;healthPrevious=null;freezeChecks=0;audioVideoStallChecks=0;
  lastSoftRecoveryAt=0;lastSoftFreezeCount=null;currentVideoFreezeCount=null;
+ smoothnessPrevious=null;adaptiveVideoPlayout.reset();
  lastStrongVideoRebindAt=0;
  visualWatchdog=null;visualSampleCanvas=null;
  nativePlaneFirstVideoAt=0;nativeUnreadableSamples=0;
@@ -673,6 +677,9 @@ function startVideoHealth(){
    currentVideoFreezeCount=sample.freezeCount;
    const videoPipeline=inspectVideoPipeline(healthPrevious,sample);
    const decodeHealth=decoderSummary(healthPrevious?._rawDecoder||null,inbound);
+    const smoothness=measureSmoothness(smoothnessPrevious,inbound,Date.now());
+    smoothnessPrevious=smoothness.next;
+    const playout=adaptiveVideoPlayout.observe(smoothness.metrics,peer,Date.now());
    // Carry the previous inbound stats only locally, never through telemetry.
    (sample as any)._rawDecoder={framesDecoded:inbound.framesDecoded,totalDecodeTime:inbound.totalDecodeTime,
     packetsReceived:inbound.packetsReceived,packetsLost:inbound.packetsLost,
@@ -701,7 +708,11 @@ function startVideoHealth(){
     keyFramesDecoded:sample.keyFramesDecoded,
     quality:sample.videoQualityFrames,dropped:sample.videoDroppedFrames,
     paused:sample.videoPaused,readyState:sample.videoReadyState,
-    input:{...controller,packetsInWindow:inputPacketsInWindow}});
+    smoothness:{fps:smoothness.metrics.fps,jitterMs:smoothness.metrics.jitterMs,
+      lossPct:smoothness.metrics.lossPct,decodeMs:smoothness.metrics.decodeMs,
+      bufferMs:smoothness.metrics.bufferMs,cause:smoothness.metrics.cause,
+      bufferMode:playout.mode,bufferTargetMs:playout.targetMs},
+     input:{...controller,packetsInWindow:inputPacketsInWindow}});
    const now=Date.now();
    const isMetro=needsXboxDialogCompatibility(launchedStreamingTitle);
    const visual=visualWatchdog?.observe({
