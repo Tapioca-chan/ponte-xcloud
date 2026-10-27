@@ -57,10 +57,15 @@ export class AdaptiveVideoPlayout {
   // Never buffer to mask a slow decoder or a remote low-FPS game.
   if(metrics.decoderTrouble||metrics.cause==='mixed')return {mode:'decoder-limited',targetMs:this.targetMs};
   let requested=this.targetMs;
-  if(this.bad>=2){
+  // One strong burst with repeated REAL RTC freezes justifies preventive
+  // buffering before waiting for another 6.5-second telemetry poll.
+  // This sacrifices up to ~130ms playout latency, never pixel quality.
+  const freezeBurst=network&&Number(metrics.newFreezes)>=2&&
+    metrics.jitterMs!==null&&metrics.jitterMs>=35;
+  if(this.bad>=2||freezeBurst){
    const severe=(metrics.jitterMs!==null&&metrics.jitterMs>=48)||
     (metrics.lossPct!==null&&metrics.lossPct>=5);
-   requested=severe?90:55;
+   requested=severe?Math.min(135,Math.max(90,Math.round((metrics.jitterMs||45)*2))):55;
   }else if(this.good>=4 && this.targetMs>0)requested=0;
   if(requested===this.targetMs)return {mode:this.targetMs>0?'network-buffered':'monitoring',targetMs:this.targetMs};
   // Limit writes to once per 12 s. Excessive tuning itself causes jitter.
