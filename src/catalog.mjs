@@ -25,12 +25,16 @@ export function gameCard(title, product) {
   const p = product && typeof product === 'object' ? product : {};
   const titleId = String(title?.titleId || title?.id || '').slice(0, 150);
   const productId = String(d.productId || '').slice(0, 40);
+  // Unlike the stream titleId, details.xboxTitleId is the decimal Xbox
+  // Services ID used by the achievements API.
+  const candidate = String(d.xboxTitleId ?? '');
+  const xboxTitleId = /^\d{1,12}$/.test(candidate) ? candidate : '';
   const name = String(p.ProductTitle || d.name || d.title || title?.title || titleId || 'Sem título').slice(0, 150);
   const tile = safeCatalogImage(p.Image_Tile?.URL || p.Image_Poster?.URL || p.Image_Hero?.URL);
   const hero = safeCatalogImage(p.Image_Hero?.URL || p.Image_Poster?.URL || p.Image_Tile?.URL);
   const genre = Array.isArray(p.LocalizedCategories) ? p.LocalizedCategories.slice(0, 2).filter(x => typeof x === 'string').join(' • ') : '';
   return {
-    titleId, productId, name, tile, hero,
+    titleId, xboxTitleId, productId, name, tile, hero,
     description: String(p.ProductDescription || '').slice(0, 380),
     genre: genre.slice(0, 90),
     publisher: String(p.PublisherName || '').slice(0, 80),

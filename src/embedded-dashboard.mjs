@@ -477,7 +477,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
         :'Não foi possível verificar a licença desta conta. O Xbox poderá recusar a partida.';
     $('xb-launch-status').textContent='';
     // Send only the selected title, never the Microsoft account or tokens.
-    notifyParent({type:'xbridge-selected-title',title:String(game.name||'').slice(0,150)});
+    notifyParent({type:'xbridge-selected-title',title:String(game.name||'').slice(0,150),xboxTitleId:String(game.xboxTitleId||'')});
     $('play').disabled=game.accessible===false;
     const cards=document.querySelectorAll('.xb-game-card');cards.forEach(c=>{c.classList.toggle('is-selected',c.dataset.titleId===id)});
   }
@@ -503,7 +503,7 @@ export function mountEmbeddedDashboard({api, QRCode, status, notifyParent, handl
       recentGames=Array.isArray(result.games)?result.games.filter(g=>g&&g.titleId):[];
       // Real Xbox MRU only; no made-up recent game list or entitlement.
       notifyParent({type:'xbridge-xbox-recent',games:recentGames.slice(0,6).map(game=>({
-       titleId:String(game.titleId||'').slice(0,160),name:String(game.name||'').slice(0,150),
+       titleId:String(game.titleId||'').slice(0,160),xboxTitleId:String(game.xboxTitleId||''),name:String(game.name||'').slice(0,150),
        tile:safeCover(game.tile),hero:safeCover(game.hero),genre:String(game.genre||'').slice(0,90),
        ...(typeof game.accessible==='boolean'?{accessible:game.accessible}:{}),
        publisher:String(game.publisher||'').slice(0,80),description:String(game.description||'').slice(0,450),
