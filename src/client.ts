@@ -1683,6 +1683,19 @@ if (embedded) {
    // Official Microsoft device-code flow is executed by the existing player.
    // Only the non-secret verification code/URI goes to the paired mobile.
    void dashboard.beginAuth();
+  } else if(event.data?.type==='xbridge-live-request'){
+   // Reuse the existing Microsoft/xCloud account, no second login.
+   // Only sanitized Xbox Live data is sent to the XBridge Game Hub.
+   void (async()=>{
+    try{
+     const raw=String(event.data.titleId||'');
+     const titleId=/^\d{1,12}$/.test(raw)?raw:'';
+     const result=await api('live',{titleId});
+     notifyParent({type:'xbridge-live-result',...result});
+    }catch{
+     notifyParent({type:'xbridge-live-result',ok:false,code:'live_unavailable'});
+    }
+   })();
   } else if(event.data?.type==='xbridge-game-menu') {
    notifyParent({type:'xbridge-game-session',active:false});
    // Return to catalog WITHOUT losing the Xbox account cookie.

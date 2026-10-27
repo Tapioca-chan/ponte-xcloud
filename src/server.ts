@@ -4,6 +4,7 @@ import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import Auth from '../vendor/packages/platform/src/controller/auth';
+import {readXboxLiveAccount} from './xbox-live-account.mjs';
 import * as stream from '../vendor/packages/player/src/server/index';
 import {sanitize} from './protocol.mjs';
 import {gameCard} from './catalog.mjs';
@@ -170,6 +171,31 @@ const server=http.createServer(async(req,res)=>{
    }
    const room=rooms.get(body.room);if(!room||req.headers.authorization!=='Bearer '+room.tvKey){reply(res,401,{error:'Sala inválida ou expirada'});return;}
    room.touched=Date.now();
+   if(action==='live'){
+    // Uses the same Microsoft account already signed into xCloud.
+    // Does not refresh tokens or interrupt an ongoing WebRTC session.
+    if(!room.user||!room.token){reply(res,401,{ok:false,code:'microsoft_not_linked'});return;}
+    const expiresAt=Date.parse(String(room.user.expires_on||''));
+    if(Number.isFinite(expiresAt)&&expiresAt<=Date.now()+60000){
+     reply(res,401,{ok:false,code:'microsoft_token_expired'});return;
+    }
+    const titleId=/^\d{1,12}$/.test(String(body.titleId||''))?String(body.titleId):'';
+    const cacheKey=titleId||'account';
+    if(room.liveCache?.key===cacheKey&&Date.now()-room.liveCache.at<60000){
+     reply(res,200,room.liveCache.data);return;
+    }
+    if(room.liveQuery){reply(res,409,{ok:false,code:'xbox_query_pending'});return;}
+    room.liveQuery=true;
+    try{
+     const web=await auth.getWebToken(room.user);
+     const result=await readXboxLiveAccount(web,{titleId});
+     room.liveCache={at:Date.now(),key:cacheKey,data:result};
+     reply(res,200,result);return;
+    }catch{
+     // Failed Xbox permissions never revoke the working game login.
+     reply(res,200,{ok:false,code:'xbox_authorization_unavailable'});return;
+    }finally{room.liveQuery=false;}
+   }
    if(room.busy){reply(res,409,{error:'Aguarde a operação atual'});return;}
    room.busy=true;
    try {
@@ -388,7 +414,7 @@ if(action==='recent'){
     const raw=e instanceof Error?e.message:'';
     const matched=raw.match(/(?:Streaming HTTP |indisponível \()([45][0-9]{2})/i);
     const upstreamStatus=matched?Number(matched[1]):undefined;
-    const allowedActions=new Set(['create','resume','logout','login','verify','catalog','recent','titles','start','state','connect','sdp','ice','keepalive','reset','close']);
+    const allowedActions=new Set(['create','resume','logout','login','verify','catalog','recent','titles','start','state','connect','sdp','ice','keepalive','reset','close','live']);
     const stage=allowedActions.has(actionName)?actionName:'init';
     const messages:Record<string,string>={
       create:'Não foi possível criar a sala de jogos.',
