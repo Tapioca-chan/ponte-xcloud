@@ -757,12 +757,12 @@ function startVideoHealth(){
     active:started&&(effectiveState==='connected'||effectiveState==='completed')
    });
    let rendererRescueEnabled=true;
-   let aggressiveSurfaceAllowed=false;
+   // Keyframe-only automatic rescue is non-destructive. Never recreate a
+   // running VIDAA video element based on persisted experimental settings:
+   // field testing showed the physical plane shrinking to the upper-left.
+   const aggressiveSurfaceAllowed=false;
    try{
     rendererRescueEnabled=localStorage.getItem('xbridge:vidaa-renderer-repair')!=='false';
-    // Potential black flash: this escalation is OFF by default, never
-    // inferred from old experimental Metro toggles.
-    aggressiveSurfaceAllowed=localStorage.getItem('xbridge:vidaa-allow-auto-surface-rebuild')==='true';
    }catch(_){}
    const hostEligible=!videoRecoveryInFlight &&
      !reconnectingMedia && !activeFreezeMarker && !gameOverlayOpen &&
@@ -789,9 +789,10 @@ function startVideoHealth(){
    // Prior keyframe + repeated NEW RTC freeze rises + active gameplay are
    // required. The VIDAA still cannot expose the physical pixels, therefore
    // this policy detects risk, not a guaranteed visual freeze.
-   let autoHostMigrationEnabled=false;
-   if(autoHostMigrationOverride!==null)autoHostMigrationEnabled=autoHostMigrationOverride;
-   else try{autoHostMigrationEnabled=localStorage.getItem('xbridge:vidaa-auto-host-migration')==='true'}catch(_){}
+   // Stable mode across old browser storage and parent messages.
+   // Never migrate the physical video to another document AUTOMATICALLY.
+   // A source-resolution change is not proof of a frozen physical overlay.
+   const autoHostMigrationEnabled=false;
    const hostEvidence=autoHostMigrationWatch.observe({
     now,decoded:sample.decoded,received:sample.received,
     freezeCount:sample.freezeCount,ready:sample.videoReadyState>=2,
@@ -1733,11 +1734,13 @@ if (embedded) {
    notifyParent({type:'xbridge-rescue-stage',step:'received'});
    void rescueFrozenVideo();
   } else if(event.data?.type==='xbridge-set-auto-host-migration'){
-   // Applied only from the validated same-origin TV parent.
-   autoHostMigrationOverride=event.data.enabled===true;
+   // Previous experimental opt-ins may be saved by an old TV bundle.
+   // Ignore requests to re-enable after the physical-video shrink report.
+   autoHostMigrationOverride=false;
+   try{localStorage.setItem('xbridge:vidaa-auto-host-migration','false')}catch(_){}
    notifyParent({type:'xbridge-auto-host-watch',
-    reason:autoHostMigrationOverride?'enabled':'opted-out',
-    action:'none',enabled:autoHostMigrationOverride,attempts:autoHostMigrationWatch.attempts});
+    reason:'disabled-for-video-geometry',action:'none',enabled:false,
+    attempts:autoHostMigrationWatch.attempts});
   } else if(event.data?.type==='xbridge-migrate-video-host'){
    void migrateNativeVideoHostWithEvidence();
   } else if(event.data?.type==='xbridge-reconnect-media'){
