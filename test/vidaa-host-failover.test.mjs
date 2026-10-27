@@ -30,3 +30,14 @@ test('manual command has receipt and real status, no login, game restart or new 
  const method=render.slice(render.indexOf('async migrateNativeVideoHost()'),render.indexOf('getElement(){'));
  assert.doesNotMatch(method,/new RTCPeerConnection|api\('start'|logOut|requestAccessToken/);
 });
+
+test('Toshiba never migrates a healthy parent video into a cropped iframe',()=>{
+ const method=render.slice(render.indexOf('async migrateNativeVideoHost()'),render.indexOf('getElement(){'));
+ assert.match(method,/if\(current==='parent'\)return null/);
+ assert.match(method,/if\(next==='parent'\)/);
+ assert.match(method,/const scaleFallback=physical&&knownVidea/);
+ assert.match(method,/replacement\.style\.setProperty\('width',Math\.round\(targetW\)\+'px'/);
+ const position=method.indexOf("replacement.style.setProperty('width',Math.round(targetW)");
+ const bind=method.indexOf('replacement.srcObject=stream');
+ assert.ok(position>=0&&bind>position,'full physical geometry must be reserved BEFORE decoder bind');
+});
